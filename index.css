@@ -1,69 +1,200 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
 
-  --color-brand: #2563EB;
-  --color-brand-hover: #1D4ED8;
-  --color-brand-soft: #EFF6FF;
+/* ===== Warm terracotta / cream theme (light, default) ===== */
+:root {
+  --color-brand: #C15F3C;
+  --color-brand-hover: #A64E30;
+  --color-brand-soft: #F7EAE1;
+  --color-brand-border: #E8CDBD;
+  --color-brand-shadow: rgba(193, 95, 60, 0.35);
+
+  --color-canvas: #FDFAF5;
   --color-surface: #FFFFFF;
-  --color-surface-muted: #F8FAFC;
-  --color-border: #E2E8F0;
-  --color-accent-amber: #D97706;
-  --color-accent-green: #059669;
+  --color-surface-sunken: #F4EFE6;
+  --color-ink: #2B2620;
+  --color-ink-soft: #6B6153;
+  --color-ink-muted: #948A7C;
+  --color-line: #E9E1D4;
+  --color-line-strong: #DDD2BF;
+  --color-gridline: #F0EADF;
+
+  --color-positive: #3E7355;
+  --color-positive-soft: #E7F0E9;
+  --color-warning: #946618;
+  --color-warning-soft: #F7ECD6;
+  --color-danger: #B0432A;
+  --color-danger-soft: #FBEAE4;
+  --color-violet: #715788;
+  --color-violet-soft: #EFE8F1;
+  --color-teal: #3C7873;
+  --color-teal-soft: #E2EFEE;
+  --color-slate: #566880;
+  --color-slate-soft: #EAEEF3;
+
+  --color-status-dot: #5AA06F;
+}
+
+/* ===== Dark override — same variable names, warm charcoal ===== */
+.dark {
+  --color-brand: #E08256;
+  --color-brand-hover: #EB9269;
+  --color-brand-soft: rgba(224, 130, 86, 0.16);
+  --color-brand-border: rgba(224, 130, 86, 0.4);
+  --color-brand-shadow: rgba(224, 130, 86, 0.4);
+
+  --color-canvas: #201D19;
+  --color-surface: #272320;
+  --color-surface-sunken: #2F2A24;
+  --color-ink: #ECE5DA;
+  --color-ink-soft: #B8AE9F;
+  --color-ink-muted: #9A9084;
+  --color-line: #3A342D;
+  --color-line-strong: #453E35;
+  --color-gridline: #332E28;
+
+  --color-positive: #8FCBA3;
+  --color-positive-soft: rgba(92, 150, 113, 0.18);
+  --color-warning: #E0BE7C;
+  --color-warning-soft: rgba(200, 160, 80, 0.18);
+  --color-danger: #E7897A;
+  --color-danger-soft: rgba(200, 90, 70, 0.18);
+  --color-violet: #C6A7DC;
+  --color-violet-soft: rgba(160, 120, 190, 0.2);
+  --color-teal: #86CFC6;
+  --color-teal-soft: rgba(80, 160, 150, 0.18);
+  --color-slate: #A7B7D2;
+  --color-slate-soft: rgba(120, 140, 175, 0.2);
+
+  --color-status-dot: #6CC088;
 }
 
 @layer base {
   body {
-    @apply text-slate-900 antialiased bg-white;
+    @apply antialiased;
+    color: var(--color-ink);
+    background: var(--color-canvas);
     font-family: var(--font-sans);
+    transition: background-color .15s ease, color .15s ease;
   }
 }
 
 @layer components {
-  .status-pill {
-    @apply inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold leading-none uppercase tracking-wide;
-    background-color: var(--color-brand-soft);
-    color: var(--color-brand-hover);
-  }
-
   .numerical {
     font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
   }
 
-  .toolbar-btn {
-    @apply p-1.5 rounded-md hover:bg-slate-100 transition-colors;
+  .tbtn {
+    @apply h-8 w-8 flex items-center justify-center rounded-md text-[color:var(--color-ink-soft)] transition-colors;
   }
+  .tbtn:hover { background: var(--color-surface-sunken); color: var(--color-ink); }
+  .tbtn:disabled { opacity: .35; pointer-events: none; }
+
+  .tmenu {
+    @apply px-2.5 h-8 flex items-center rounded-md text-[13px] font-medium text-[color:var(--color-ink-soft)] transition-colors;
+  }
+  .tmenu:hover { background: var(--color-surface-sunken); color: var(--color-ink); }
+
+  .btn-secondary {
+    @apply h-8 px-3 inline-flex items-center gap-1.5 rounded-md text-[12.5px] font-medium transition-colors;
+    color: var(--color-ink-soft);
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+  }
+  .btn-secondary:hover { background: var(--color-surface-sunken); color: var(--color-ink); }
+
+  .btn-primary {
+    @apply h-8 px-3.5 inline-flex items-center gap-1.5 rounded-md text-[12.5px] font-semibold text-white transition-colors;
+    background: var(--color-brand);
+    box-shadow: 0 2px 8px -1px var(--color-brand-shadow);
+  }
+  .btn-primary:hover { background: var(--color-brand-hover); }
+  .btn-primary:disabled { opacity: .45; pointer-events: none; }
+
+  .menu-pop {
+    @apply absolute mt-1.5 min-w-56 rounded-xl py-1.5 text-sm z-50;
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    box-shadow: 0 16px 40px -10px rgba(60,45,30,.35);
+  }
+  .menu-item {
+    @apply w-full text-left px-3.5 py-2 flex items-center gap-3 text-[13px] transition-colors;
+    color: var(--color-ink-soft);
+  }
+  .menu-item:hover { background: var(--color-surface-sunken); color: var(--color-ink); }
+  .menu-item:disabled { opacity: .35; pointer-events: none; }
+
+  .status-dot {
+    @apply inline-flex items-center gap-1.5 text-[12px] font-medium;
+    color: var(--color-ink-soft);
+  }
+  .status-dot .dot {
+    @apply w-[7px] h-[7px] rounded-full shrink-0;
+    background: var(--color-status-dot);
+  }
+
+  .lock-tag {
+    @apply inline-flex items-center gap-1.5 text-[10.5px] font-semibold rounded-md px-2 py-1;
+    color: var(--color-ink-muted);
+    background: var(--color-surface-sunken);
+  }
+  .rchip {
+    @apply inline-flex items-center h-7 px-2.5 rounded-lg text-[12px] font-medium;
+    color: var(--color-ink);
+    background: var(--color-surface-sunken);
+    border: 1px solid var(--color-line);
+  }
+
+  .badge { @apply inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold leading-none uppercase tracking-wide; }
+  .badge-asset    { background: var(--color-positive-soft); color: var(--color-positive); }
+  .badge-bulk     { background: var(--color-slate-soft);    color: var(--color-slate); }
+  .badge-prepaid  { background: var(--color-violet-soft);   color: var(--color-violet); }
+  .badge-labour   { background: var(--color-warning-soft);  color: var(--color-warning); }
+  .badge-shipping { background: var(--color-teal-soft);     color: var(--color-teal); }
+  .badge-unknown  { background: var(--color-surface-sunken); color: var(--color-ink-muted); }
+
+  .filter-chip {
+    @apply inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium cursor-pointer transition-colors border border-transparent;
+    color: var(--color-ink-soft);
+  }
+  .filter-chip:hover { background: var(--color-surface-sunken); }
+  .filter-chip.on {
+    background: var(--color-brand-soft);
+    color: var(--color-brand);
+    border-color: var(--color-brand-border);
+  }
+  .filter-chip .n { font-size: 11px; opacity: .7; font-weight: 500; }
+
+  .theme-switch {
+    @apply flex items-center w-[46px] h-[26px] rounded-full p-[2px] cursor-pointer transition-colors;
+    background: var(--color-surface-sunken);
+    border: 1px solid var(--color-line);
+  }
+  .theme-switch .knob {
+    @apply w-[20px] h-[20px] rounded-full flex items-center justify-center transition-transform;
+    background: var(--color-surface);
+    box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  }
+  .dark .theme-switch .knob { transform: translateX(20px); }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 9999px; border: 3px solid var(--color-canvas); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-ink-muted); }
 
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 rounded-full hover:bg-slate-400;
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
-}
-.no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
-
-@keyframes slide-in-right {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
-}
-.animate-slide-in-right {
-  animation: slide-in-right 0.25s ease-out;
-}
+.animate-toast-in { animation: toast-in .2s cubic-bezier(.16,1,.3,1); }

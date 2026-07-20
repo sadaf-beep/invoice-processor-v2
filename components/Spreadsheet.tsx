@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { InvoiceItem, ColumnConfig, CellStyle } from '../types';
-import { Plus, Type, Hash, Calendar } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 interface SpreadsheetProps {
   data: InvoiceItem[];
   columns: ColumnConfig[];
   styles: Record<string, CellStyle>;
+  /** When provided, only these original row indices are rendered (search/type-filter active). */
+  visibleIndices?: number[];
   onCellChange: (rowIndex: number, columnId: string, value: string) => void;
   onBatchChange?: (updates: { r: number; c: string; v: string }[]) => void;
-  onColumnUpdate: (newColumns: ColumnConfig[]) => void;
   onSelectionChange: (rowIndex: number | null, colId: string | null) => void;
 }
 
@@ -36,43 +37,20 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
   data,
   columns,
   styles,
+  visibleIndices,
   onCellChange,
   onBatchChange,
-  onColumnUpdate,
   onSelectionChange,
 }) => {
-  const [newColumnName, setNewColumnName] = useState('');
   const [selectionRange, setSelectionRange] = useState<SelectionRange | null>(null);
   const [activeCell, setActiveCell] = useState<Coordinate | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
+  const isFiltered = visibleIndices !== undefined;
   const rowCount = Math.max(data.length, 50);
-  const rows = Array.from({ length: rowCount }, (_, i) => data[i] || {});
-
-  const handleAddColumn = () => {
-    if (newColumnName.trim()) {
-      onColumnUpdate([...columns, { id: newColumnName, label: newColumnName, type: 'string', required: false }]);
-      setNewColumnName('');
-    }
-  };
-
-  const handleRemoveColumn = (id: string) => {
-    onColumnUpdate(columns.filter((c) => c.id !== id));
-  };
-
-  const cycleColumnType = (id: string) => {
-    const types: ('string' | 'number' | 'date')[] = ['string', 'number', 'date'];
-    const updated = columns.map((c) => {
-      if (c.id === id) {
-        const nextIndex = (types.indexOf(c.type) + 1) % types.length;
-        return { ...c, type: types[nextIndex] };
-      }
-      return c;
-    });
-    onColumnUpdate(updated);
-  };
+  const displayIndices = isFiltered ? visibleIndices! : Array.from({ length: rowCount }, (_, i) => i);
 
   const handleMouseDown = (rowIndex: number, colIndex: number, e: React.MouseEvent) => {
     if (e.shiftKey && selectionRange) {
@@ -227,77 +205,61 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
 
   const lastNonEmptyRowIdx = data.reduce((acc, row, idx) => (Object.values(row).some((v) => v !== '') ? idx : acc), -1);
 
+  const activeCol = activeCell ? columns[activeCell.cIdx] : null;
+  const activeCellRef = activeCell ? `${columnLetter(activeCell.cIdx)}${activeCell.r + 1}` : '';
+  const activeCellValue = activeCell && activeCol ? String(data[activeCell.r]?.[activeCol.label] ?? '') : '';
+
   return (
     <div
       ref={gridContainerRef}
-      className="flex-1 bg-white flex flex-col overflow-hidden relative select-none outline-none"
+      className="flex-1 bg-[color:var(--color-surface)] flex flex-col overflow-hidden relative select-none outline-none"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
     >
+      {/* Name box + formula readout */}
+      <div className="h-8 flex items-center shrink-0 border-b border-[color:var(--color-line)] bg-[color:var(--color-surface)]">
+        <div className="w-24 h-full flex items-center px-3 border-r border-[color:var(--color-line)] numerical text-[12px] font-semibold text-[color:var(--color-ink)]">
+          {activeCellRef}
+        </div>
+        <div className="w-9 h-full flex items-center justify-center border-r border-[color:var(--color-line)] italic text-[13px] text-[color:var(--color-ink-muted)]" style={{ fontFamily: 'Georgia, serif' }}>
+          fx
+        </div>
+        <div className="px-3 text-[12.5px] text-[color:var(--color-ink)] truncate flex-1">{activeCellValue}</div>
+      </div>
+
       <div className="flex-1 overflow-auto no-scrollbar">
         <table className="w-full border-collapse text-[13px] table-fixed">
           <thead className="sticky top-0 z-20">
-            <tr className="border-b border-slate-200">
-              <th className="w-[44px] bg-slate-50 p-0 text-center font-medium text-[10px] text-slate-400 border-r border-slate-200"></th>
+            <tr className="border-b border-[color:var(--color-line-strong)]">
+              <th className="w-[44px] p-0 text-center font-medium text-[10px] text-[color:var(--color-ink-muted)] border-r border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)]"></th>
               {columns.map((col, index) => (
                 <th
                   key={col.id}
-                  className="px-3 pt-1.5 pb-2 text-left w-[184px] bg-slate-50 select-none relative group border-r border-slate-200"
+                  className="px-3 pt-1.5 pb-2 text-left w-[184px] select-none border-r border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)]"
                 >
-                  <div className="text-[9px] font-medium text-slate-400 mb-0.5">{columnLetter(index)}</div>
-                  <div className="flex items-center gap-2 pr-5">
-                    <span className="font-semibold text-slate-700 text-[12.5px] truncate" title={col.label}>{col.label}</span>
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-50">
-                      <button
-                        onClick={() => cycleColumnType(col.id)}
-                        className="p-1 hover:bg-slate-200 rounded text-slate-500"
-                        title={`Type: ${col.type}`}
-                      >
-                        {col.type === 'string' && <Type size={11} />}
-                        {col.type === 'number' && <Hash size={11} />}
-                        {col.type === 'date' && <Calendar size={11} />}
-                      </button>
-                    </div>
-                  </div>
+                  <div className="text-[9px] font-semibold text-[color:var(--color-ink-muted)] mb-0.5">{columnLetter(index)}</div>
+                  <span className="font-semibold text-[color:var(--color-ink)] text-[12.5px] truncate block" title={col.label}>{col.label}</span>
                 </th>
               ))}
-              <th className="bg-slate-50 w-[120px] border-r border-slate-200">
-                <div className="flex items-center gap-1 px-2 toolbar-control">
-                  <input
-                    type="text"
-                    placeholder="+ column"
-                    value={newColumnName}
-                    onChange={(e) => setNewColumnName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddColumn()}
-                    className="w-20 bg-transparent text-[11px] font-normal text-slate-400 placeholder:text-slate-400 outline-none"
-                  />
-                  {newColumnName && (
-                    <button onClick={handleAddColumn} className="text-brand shrink-0">
-                      <Plus size={13} />
-                    </button>
-                  )}
-                </div>
-              </th>
             </tr>
           </thead>
-          <tbody className="bg-white">
-            {rows.map((row, rowIndex) => {
-              const isEmpty = rowIndex > lastNonEmptyRowIdx;
+          <tbody>
+            {displayIndices.map((rowIndex) => {
+              const row = data[rowIndex] || {};
+              const isEmpty = !isFiltered && rowIndex > lastNonEmptyRowIdx;
               if (isEmpty && rowIndex > lastNonEmptyRowIdx + 15) return null;
 
+              const rowSelected =
+                selectionRange &&
+                rowIndex >= Math.min(selectionRange.start.r, selectionRange.end.r) &&
+                rowIndex <= Math.max(selectionRange.start.r, selectionRange.end.r);
+
               return (
-                <tr key={rowIndex} className={`h-[38px] hover:bg-slate-50/70 group/row ${!isEmpty ? 'border-b border-slate-100' : ''}`}>
+                <tr key={rowIndex} className={`h-[38px] group/row transition-colors ${rowSelected ? '' : 'hover:bg-[color:var(--color-surface-sunken)]/60'} ${!isEmpty ? 'border-b border-[color:var(--color-line)]' : ''}`}>
                   <td
-                    className={`text-center text-[11px] font-medium transition-colors w-[44px] select-none sticky left-0 z-10 bg-slate-50 border-r border-slate-200
-                      ${
-                        selectionRange &&
-                        rowIndex >= Math.min(selectionRange.start.r, selectionRange.end.r) &&
-                        rowIndex <= Math.max(selectionRange.start.r, selectionRange.end.r)
-                          ? 'text-brand font-bold'
-                          : 'text-slate-400'
-                      }
-                    `}
+                    className={`text-center text-[11px] font-medium transition-colors w-[44px] select-none sticky left-0 z-10 border-r border-[color:var(--color-line)]
+                      ${rowSelected ? 'text-[color:var(--color-brand)] font-bold bg-[color:var(--color-brand-soft)]' : 'text-[color:var(--color-ink-muted)] bg-[color:var(--color-surface-sunken)]'}`}
                     onClick={() => handleRowHeaderClick(rowIndex)}
                   >
                     {!isEmpty || rowIndex === lastNonEmptyRowIdx + 1 ? rowIndex + 1 : ''}
@@ -313,6 +275,7 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
 
                     const isPrice = col.label.toUpperCase() === 'PURCHASE PRICE';
                     const isStatus = col.label.toUpperCase() === 'STATUS';
+                    const isItemType = col.label.toUpperCase() === 'ITEM TYPE';
                     const isIdType = ['PO #', 'MODEL #', 'SERIAL #'].includes(col.label.toUpperCase()) || col.type === 'number' || col.type === 'date';
 
                     const isSelected = isInRange(rowIndex, colIndex);
@@ -326,28 +289,43 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
                       }).format(parseFloat(cellValue));
                     }
 
+                    const badgeClass = (v: string) => {
+                      switch (v.toUpperCase()) {
+                        case 'ASSET': return 'badge badge-asset';
+                        case 'BULK ITEM': return 'badge badge-bulk';
+                        case 'PREPAID': return 'badge badge-prepaid';
+                        case 'LABOUR': return 'badge badge-labour';
+                        case 'SHIPPING': return 'badge badge-shipping';
+                        default: return 'badge badge-unknown';
+                      }
+                    };
+
                     return (
                       <td
                         key={colIndex}
-                        className={`p-0 relative transition-all duration-75 border-r border-slate-100
-                          ${isActive ? 'z-30 ring-2 ring-brand ring-inset bg-white' : ''}
-                          ${isSelected && !isActive ? 'bg-blue-50' : ''}
+                        className={`p-0 relative transition-all duration-75 border-r border-[color:var(--color-line)]
+                          ${isActive ? 'z-30 ring-2 ring-[color:var(--color-brand)] ring-inset bg-[color:var(--color-surface)]' : ''}
+                          ${isSelected && !isActive ? 'bg-[color:var(--color-brand-soft)]' : ''}
                         `}
                         onMouseDown={(e) => handleMouseDown(rowIndex, colIndex, e)}
                         onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
                       >
-                        {isStatus && cellValue.toUpperCase() === 'ORDERED' ? (
-                          <div className="px-3 h-full flex items-center">
-                            <span className="status-pill">Ordered</span>
+                        {isStatus && cellValue.toUpperCase() === 'ORDERED' && !isActive ? (
+                          <div className="px-3 h-full flex items-center" onDoubleClick={() => setActiveCell({ r: rowIndex, cIdx: colIndex })}>
+                            <span className="status-dot"><span className="dot" />Ordered</span>
+                          </div>
+                        ) : isItemType && cellValue && !isActive ? (
+                          <div className="px-3 h-full flex items-center" onDoubleClick={() => setActiveCell({ r: rowIndex, cIdx: colIndex })}>
+                            <span className={badgeClass(cellValue)}>{cellValue}</span>
                           </div>
                         ) : (
                           <input
                             type="text"
-                            className={`w-full h-full px-3 bg-transparent outline-none border-none text-slate-900
+                            className={`w-full h-full px-3 bg-transparent outline-none border-none text-[color:var(--color-ink)]
                               ${isIdType || isPrice ? 'numerical text-[12.5px]' : 'text-[13px] font-normal'}
                               ${isPrice ? 'text-right' : 'text-left'}
                             `}
-                            style={{ color: col.label.toUpperCase() === 'SERIAL #' && !rawValue ? '#CBD5E1' : undefined }}
+                            style={{ color: col.label.toUpperCase() === 'SERIAL #' && !rawValue ? 'var(--color-ink-muted)' : undefined }}
                             value={isActive ? rawValue : displayValue}
                             onFocus={() => {
                               setActiveCell({ r: rowIndex, cIdx: colIndex });
@@ -360,23 +338,27 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
                       </td>
                     );
                   })}
-                  <td></td>
                 </tr>
               );
             })}
 
-            <tr>
-              <td colSpan={columns.length + 2} className="py-6">
-                <button
-                  onClick={() => onCellChange(lastNonEmptyRowIdx + 1, columns[0].label, '')}
-                  className="w-full text-center text-slate-400 text-[12px] font-medium hover:text-brand transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <Plus size={13} /> Add row
-                </button>
-              </td>
-            </tr>
+            {!isFiltered && (
+              <tr>
+                <td colSpan={columns.length + 1} className="py-6">
+                  <button
+                    onClick={() => onCellChange(lastNonEmptyRowIdx + 1, columns[0].label, '')}
+                    className="w-full text-center text-[color:var(--color-ink-muted)] text-[12px] font-medium hover:text-[color:var(--color-brand)] transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Plus size={13} /> Add row
+                  </button>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
+        {isFiltered && displayIndices.length === 0 && (
+          <div className="py-16 text-center text-[13px] text-[color:var(--color-ink-muted)]">No rows match this filter.</div>
+        )}
       </div>
     </div>
   );

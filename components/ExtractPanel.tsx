@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  X, Upload, FileText, Bot, Type, Hash, Calendar, Plus, Trash2, RotateCcw,
+  X, UploadCloud, FileText, Bot, Lock, RotateCcw,
   CheckCircle2, AlertCircle, Loader2, Sparkles,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,7 +12,11 @@ interface ExtractPanelProps {
   onClose: () => void;
   onDataReady: (items: InvoiceItem[], fileName: string, mode: 'single' | 'multiple', instructionsUsed: string) => void;
   onConfigChange: (columns: ColumnConfig[], instructions: string) => void;
+  onError: (fileName: string, message: string) => void;
   activeSheet: Sheet;
+  /** Files dropped on the window while the panel was closed — preloaded once the panel opens. */
+  pendingFiles: File[] | null;
+  onPendingFilesConsumed: () => void;
 }
 
 interface FileStatus {
@@ -21,13 +25,21 @@ interface FileStatus {
   errorMessage?: string;
 }
 
-export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onDataReady, onConfigChange, activeSheet }) => {
+const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png'];
+
+const cleanErr = (e: unknown): string => {
+  let s = e instanceof Error ? e.message : String(e);
+  s = s.replace(/^Error:\s*/i, '').trim();
+  return s || 'Something went wrong.';
+};
+
+export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onDataReady, onConfigChange, onError, activeSheet, pendingFiles, onPendingFilesConsumed }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [pageRange, setPageRange] = useState('All');
   const [outputMode, setOutputMode] = useState<'single' | 'multiple'>('single');
-  const [newColName, setNewColName] = useState('');
   const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
   const [isProcessingGlobal, setIsProcessingGlobal] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,19 +70,33 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     return () => clearInterval(interval);
   }, [isProcessingGlobal]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files) as File[];
-      setFiles((prev) => [...prev, ...newFiles]);
-      setFileStatuses((prev) => {
-        const next = { ...prev };
-        newFiles.forEach((f) => {
-          if (!next[f.name]) next[f.name] = { status: 'idle', progress: 0 };
-        });
-        return next;
+  const addFiles = (incoming: File[]) => {
+    const valid = incoming.filter((f) => ACCEPTED.includes(f.type));
+    if (valid.length === 0) return;
+    setFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.name));
+      return [...prev, ...valid.filter((f) => !existing.has(f.name))];
+    });
+    setFileStatuses((prev) => {
+      const next = { ...prev };
+      valid.forEach((f) => {
+        if (!next[f.name]) next[f.name] = { status: 'idle', progress: 0 };
       });
-    }
+      return next;
+    });
   };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) addFiles(Array.from(e.target.files) as File[]);
+  };
+
+  useEffect(() => {
+    if (pendingFiles && pendingFiles.length > 0) {
+      addFiles(pendingFiles);
+      onPendingFilesConsumed();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFiles]);
 
   const removeFile = (index: number) => {
     const fileToRemove = files[index];
@@ -90,22 +116,6 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
   const retryFile = (fileName: string) => {
     setFileStatuses((prev) => ({ ...prev, [fileName]: { status: 'idle', progress: 0, errorMessage: undefined } }));
-  };
-
-  const addColumn = () => {
-    if (newColName.trim()) {
-      const newCols = [...activeSheet.columns, { id: newColName, label: newColName, type: 'string', required: false } as ColumnConfig];
-      onConfigChange(newCols, activeSheet.customInstructions);
-      setNewColName('');
-    }
-  };
-
-  const removeColumn = (id: string) => {
-    onConfigChange(activeSheet.columns.filter((c) => c.id !== id), activeSheet.customInstructions);
-  };
-
-  const updateColumnType = (id: string, type: 'string' | 'number' | 'date') => {
-    onConfigChange(activeSheet.columns.map((c) => (c.id === id ? { ...c, type } : c)), activeSheet.customInstructions);
   };
 
   const processFiles = async () => {
@@ -136,7 +146,9 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
           reader.readAsDataURL(file);
         });
       } catch (error) {
-        setFileStatuses((prev) => ({ ...prev, [file.name]: { status: 'error', progress: 0, errorMessage: String(error) } }));
+        const msg = cleanErr(error);
+        setFileStatuses((prev) => ({ ...prev, [file.name]: { status: 'error', progress: 0, errorMessage: msg } }));
+        onError(file.name, msg);
       }
     }
     setIsProcessingGlobal(false);
@@ -144,61 +156,55 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
   const getStatusIcon = (status: FileStatus['status']) => {
     switch (status) {
-      case 'processing':
-        return <Loader2 size={15} className="animate-spin text-brand" />;
-      case 'success':
-        return <CheckCircle2 size={15} className="text-emerald-500" />;
-      case 'error':
-        return <AlertCircle size={15} className="text-red-500" />;
-      default:
-        return <FileText size={15} className="text-slate-400" />;
+      case 'processing': return <Loader2 size={15} className="animate-spin text-[color:var(--color-brand)]" />;
+      case 'success': return <CheckCircle2 size={15} className="text-[color:var(--color-positive)]" />;
+      case 'error': return <AlertCircle size={15} className="text-[color:var(--color-danger)]" />;
+      default: return <FileText size={15} className="text-[color:var(--color-ink-muted)]" />;
     }
   };
 
   const doneCount = (Object.values(fileStatuses) as FileStatus[]).filter((s) => s.status === 'success').length;
+  const sectionLabel = "text-[11px] font-bold uppercase tracking-wider text-[color:var(--color-ink-muted)]";
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-slate-900/20 z-40"
+            className="fixed inset-0 z-40"
+            style={{ background: 'rgba(28,25,23,0.28)' }}
           />
           <motion.div
-            initial={{ x: 440 }}
-            animate={{ x: 0 }}
-            exit={{ x: 440 }}
-            transition={{ type: 'tween', duration: 0.22, ease: 'easeOut' }}
-            className="fixed top-0 right-0 h-full w-[440px] bg-white border-l border-slate-200 shadow-2xl z-50 flex flex-col"
+            initial={{ x: 460 }} animate={{ x: 0 }} exit={{ x: 460 }}
+            transition={{ type: 'tween', duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed top-0 right-0 h-full w-[460px] max-w-[92vw] bg-[color:var(--color-surface)] border-l border-[color:var(--color-line)] shadow-[0_0_60px_-15px_rgba(28,25,23,0.35)] z-50 flex flex-col"
           >
             {/* Header */}
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <div className="px-5 py-4 border-b border-[color:var(--color-line)] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
-                <div className="bg-brand p-2 rounded-lg">
+                <div className="p-2 rounded-lg" style={{ background: 'linear-gradient(150deg, #D0714B, #B04E2D)' }}>
                   <Bot className="text-white w-4 h-4" />
                 </div>
                 <div>
-                  <h2 className="text-[14px] font-bold text-slate-800 leading-tight">Extract Data</h2>
-                  <p className="text-[11px] text-slate-400 leading-tight">Into <span className="text-brand font-medium">{activeSheet.name}</span></p>
+                  <h2 className="text-[14px] font-bold text-[color:var(--color-ink)] leading-tight">Extract Data</h2>
+                  <p className="text-[11px] text-[color:var(--color-ink-muted)] leading-tight mt-0.5">
+                    Into <span className="text-[color:var(--color-brand)] font-semibold">{activeSheet.name}</span>
+                  </p>
                 </div>
               </div>
-              <button onClick={onClose} className="toolbar-btn text-slate-400 hover:text-slate-700">
-                <X size={18} />
-              </button>
+              <button onClick={onClose} className="tbtn"><X size={18} /></button>
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-7">
               {/* Source */}
-              <section className="space-y-2.5">
+              <section className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Files</h3>
+                  <h3 className={sectionLabel}>Files</h3>
                   {files.length > 0 && (
-                    <button onClick={clearAllFiles} disabled={isProcessingGlobal} className="text-[11px] font-medium text-red-500 hover:underline">
+                    <button onClick={clearAllFiles} disabled={isProcessingGlobal} className="text-[11px] font-semibold text-[color:var(--color-danger)] hover:underline disabled:opacity-40">
                       Clear all
                     </button>
                   )}
@@ -206,49 +212,50 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-200 rounded-xl px-4 py-6 flex flex-col items-center justify-center text-center hover:border-brand hover:bg-brand-soft cursor-pointer transition-colors"
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(Array.from(e.dataTransfer.files) as File[]); }}
+                  className={`rounded-xl px-4 py-7 flex flex-col items-center justify-center text-center cursor-pointer transition-colors border-2 border-dashed
+                    ${dragOver ? 'border-[color:var(--color-brand)] bg-[color:var(--color-brand-soft)]' : 'border-[color:var(--color-line-strong)] hover:border-[color:var(--color-brand)] hover:bg-[color:var(--color-brand-soft)]'}`}
                 >
                   <input ref={fileInputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={handleFileChange} />
-                  <Upload className="w-6 h-6 text-slate-400 mb-2" />
-                  <p className="text-[13px] font-semibold text-slate-700">Click to upload or drag and drop</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">PDF, JPG or PNG · up to 100 files</p>
+                  <div className="w-10 h-10 rounded-xl bg-[color:var(--color-surface-sunken)] flex items-center justify-center mb-2.5">
+                    <UploadCloud className="w-5 h-5 text-[color:var(--color-ink-soft)]" />
+                  </div>
+                  <p className="text-[13px] font-semibold text-[color:var(--color-ink)]">Click to upload or drag & drop</p>
+                  <p className="text-[11px] text-[color:var(--color-ink-muted)] mt-0.5">PDF, JPG or PNG · up to 100 files</p>
                 </div>
 
                 {files.length > 0 && (
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
                     {files.map((f, i) => {
                       const s = fileStatuses[f.name] || { status: 'idle', progress: 0 };
                       return (
                         <div
                           key={f.name}
                           className={`px-3 py-2 rounded-lg border flex flex-col gap-1.5 group
-                            ${s.status === 'processing' ? 'bg-brand-soft border-blue-200' :
-                              s.status === 'success' ? 'bg-emerald-50 border-emerald-100' :
-                              s.status === 'error' ? 'bg-red-50 border-red-100' :
-                              'bg-slate-50 border-slate-100'}
-                          `}
+                            ${s.status === 'processing' ? 'bg-[color:var(--color-brand-soft)] border-[color:var(--color-brand-border)]' :
+                              s.status === 'success' ? 'bg-[color:var(--color-positive-soft)] border-[color:var(--color-line)]' :
+                              s.status === 'error' ? 'bg-[color:var(--color-danger-soft)] border-[color:var(--color-line)]' :
+                              'bg-[color:var(--color-surface-sunken)] border-[color:var(--color-line)]'}`}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                               {getStatusIcon(s.status)}
-                              <span className="truncate text-[12px] font-medium text-slate-700">{f.name}</span>
+                              <span className="truncate text-[12px] font-medium text-[color:var(--color-ink)]">{f.name}</span>
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                              {s.status === 'error' && (
-                                <button onClick={() => retryFile(f.name)} className="toolbar-btn text-brand"><RotateCcw size={13} /></button>
-                              )}
-                              {s.status !== 'processing' && (
-                                <button onClick={() => removeFile(i)} className="toolbar-btn text-slate-400 hover:text-red-500"><X size={13} /></button>
-                              )}
+                              {s.status === 'error' && <button onClick={() => retryFile(f.name)} className="tbtn h-6 w-6 text-[color:var(--color-brand)]"><RotateCcw size={13} /></button>}
+                              {s.status !== 'processing' && <button onClick={() => removeFile(i)} className="tbtn h-6 w-6"><X size={13} /></button>}
                             </div>
                           </div>
                           {s.status === 'processing' && (
-                            <div className="w-full bg-slate-200 h-1 rounded-full overflow-hidden">
-                              <div className="bg-brand h-full transition-all" style={{ width: `${s.progress}%` }} />
+                            <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: 'var(--color-surface)' }}>
+                              <div className="h-full transition-all" style={{ width: `${s.progress}%`, background: 'var(--color-brand)' }} />
                             </div>
                           )}
                           {s.status === 'error' && s.errorMessage && (
-                            <p className="text-[11px] text-red-600 leading-snug break-words">{s.errorMessage}</p>
+                            <p className="text-[11px] text-[color:var(--color-danger)] leading-snug break-words">{s.errorMessage}</p>
                           )}
                         </div>
                       );
@@ -259,54 +266,46 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
               {/* Output mode */}
               <section className="space-y-2.5">
-                <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Output</h3>
-                <div className="space-y-2">
-                  {(['single', 'multiple'] as const).map((mode) => (
-                    <label key={mode} className="flex items-center gap-2.5 cursor-pointer">
-                      <input type="radio" checked={outputMode === mode} onChange={() => setOutputMode(mode)} className="peer sr-only" />
-                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 ${outputMode === mode ? 'border-brand border-[5px]' : 'border-slate-300'}`} />
-                      <span className="text-[13px] text-slate-700">
-                        {mode === 'single' ? 'Append to active sheet' : 'Create a new sheet per file'}
-                      </span>
+                <h3 className={sectionLabel}>Output</h3>
+                <div className="grid grid-cols-1 gap-2">
+                  {([
+                    { m: 'single' as const, label: 'Append to active sheet', desc: 'Add rows to the current sheet' },
+                    { m: 'multiple' as const, label: 'New sheet per file', desc: 'Keep each invoice separate' },
+                  ]).map(({ m, label, desc }) => (
+                    <label
+                      key={m}
+                      className={`flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors
+                        ${outputMode === m ? 'border-[color:var(--color-brand)] bg-[color:var(--color-brand-soft)]' : 'border-[color:var(--color-line)] hover:bg-[color:var(--color-surface-sunken)]'}`}
+                    >
+                      <input type="radio" checked={outputMode === m} onChange={() => setOutputMode(m)} className="sr-only" />
+                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-0.5 ${outputMode === m ? 'border-[color:var(--color-brand)] border-[5px]' : 'border-[color:var(--color-line-strong)]'}`} />
+                      <div className="leading-tight">
+                        <div className="text-[13px] font-semibold text-[color:var(--color-ink)]">{label}</div>
+                        <div className="text-[11px] text-[color:var(--color-ink-muted)] mt-0.5">{desc}</div>
+                      </div>
                     </label>
                   ))}
                 </div>
               </section>
 
-              {/* Columns */}
+              {/* Columns — fixed schema, read-only */}
               <section className="space-y-2.5">
-                <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Columns to extract</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className={sectionLabel}>Columns extracted</h3>
+                  <span className="lock-tag"><Lock size={11} /> Fixed schema</span>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {activeSheet.columns.map((col) => (
-                    <div key={col.id} className="flex items-center gap-1 bg-slate-100 border border-slate-200 pl-2.5 pr-1.5 py-1 rounded-md text-[11.5px] font-medium text-slate-600">
-                      <span>{col.label}</span>
-                      <button onClick={() => updateColumnType(col.id, col.type === 'string' ? 'number' : col.type === 'number' ? 'date' : 'string')} className="p-0.5 text-slate-400 hover:text-brand">
-                        {col.type === 'string' && <Type size={11} />}
-                        {col.type === 'number' && <Hash size={11} />}
-                        {col.type === 'date' && <Calendar size={11} />}
-                      </button>
-                      <button onClick={() => removeColumn(col.id)} className="text-slate-400 hover:text-red-500"><X size={11} /></button>
-                    </div>
+                    <span key={col.id} className="rchip">{col.label}</span>
                   ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="New column name…"
-                    value={newColName}
-                    onChange={(e) => setNewColName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addColumn()}
-                    className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-[12.5px] outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
-                  />
-                  <button onClick={addColumn} className="p-1.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700"><Plus size={15} /></button>
                 </div>
               </section>
 
               {/* Extra instructions */}
               <section className="space-y-2.5">
-                <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Extra instructions</h3>
+                <h3 className={sectionLabel}>Extra instructions <span className="text-[color:var(--color-ink-muted)] font-medium normal-case tracking-normal">· optional</span></h3>
                 <textarea
-                  className="w-full h-24 border border-slate-200 rounded-lg p-3 text-[12.5px] outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand resize-none"
+                  className="w-full h-24 border border-[color:var(--color-line-strong)] rounded-lg p-3 text-[12.5px] outline-none focus:ring-2 focus:ring-[color:var(--color-brand-border)] focus:border-[color:var(--color-brand)] resize-none bg-[color:var(--color-surface)]"
                   placeholder="e.g. Ignore shipping rows entirely. Convert EUR to USD."
                   value={activeSheet.customInstructions}
                   onChange={(e) => onConfigChange(activeSheet.columns, e.target.value)}
@@ -315,37 +314,35 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
               {/* Page range */}
               <section className="space-y-2.5">
-                <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Page range</h3>
+                <h3 className={sectionLabel}>Page range</h3>
                 <input
                   type="text"
                   value={pageRange}
                   onChange={(e) => setPageRange(e.target.value)}
-                  placeholder="Leave blank for all pages, or e.g. 1-3, 5"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] font-mono outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand"
+                  placeholder="All, or e.g. 1-3, 5"
+                  className="w-full border border-[color:var(--color-line-strong)] rounded-lg px-3 py-2 text-[12.5px] numerical outline-none focus:ring-2 focus:ring-[color:var(--color-brand-border)] focus:border-[color:var(--color-brand)] bg-[color:var(--color-surface)]"
                 />
               </section>
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-4 border-t border-slate-100 shrink-0 space-y-3">
-              <div className="flex items-center gap-1.5 text-[10.5px] text-slate-400">
-                <Sparkles size={11} className="text-brand" /> Powered by Claude Opus
+            <div className="px-5 py-4 border-t border-[color:var(--color-line)] shrink-0 space-y-3 bg-[color:var(--color-surface)]">
+              <div className="flex items-center gap-1.5 text-[10.5px] text-[color:var(--color-ink-muted)]">
+                <Sparkles size={11} className="text-[color:var(--color-brand)]" /> Powered by Claude Opus
               </div>
               <div className="flex gap-2">
-                <button onClick={onClose} className="flex-1 px-4 py-2.5 text-slate-600 font-semibold text-[13px] hover:bg-slate-100 rounded-lg transition-colors">
+                <button onClick={onClose} className="flex-1 h-10 text-[color:var(--color-ink-soft)] font-semibold text-[13px] hover:bg-[color:var(--color-surface-sunken)] rounded-lg transition-colors">
                   Cancel
                 </button>
                 <button
                   onClick={processFiles}
                   disabled={files.length === 0 || isProcessingGlobal}
-                  className="flex-[2] px-4 py-2.5 bg-brand text-white rounded-lg font-semibold text-[13px] shadow-sm hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                  className="flex-[2] h-10 btn-primary justify-center text-[13px]"
                 >
                   {isProcessingGlobal ? (
-                    <>
-                      <Loader2 className="animate-spin" size={15} /> Processing {doneCount}/{files.length}…
-                    </>
+                    <><Loader2 className="animate-spin" size={15} /> Processing {doneCount}/{files.length}…</>
                   ) : (
-                    <>Process {files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : 'files'}</>
+                    <><Sparkles size={15} /> Process {files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : 'files'}</>
                   )}
                 </button>
               </div>
