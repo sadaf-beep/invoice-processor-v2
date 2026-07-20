@@ -33,6 +33,41 @@ doesn't execute serverless functions, so extraction requests will 404. For full 
 
 Alternatively, push to a branch and test against the Vercel Preview deployment it generates.
 
+## Connecting Gmail (manual scan)
+
+The Extract Data panel has a "Scan Gmail" source alongside file upload. It searches your inbox for
+messages with a subject containing **"Invoice Uploaded"**, pulls PDF attachments off matching messages,
+runs them through the same Claude extraction as a normal upload, and appends the results to the active
+sheet. It's a manual, on-demand scan for now — the daily automated version is a later phase.
+
+**How dedup works:** there's no separate database. Processed messages get a Gmail label
+(`InvoiceIntel/Processed`) applied via the API itself, and the scan query excludes that label — so
+re-running the scan never reprocesses the same email twice, and a message only gets labeled after a
+successful extraction (so a failed one is retried on the next scan).
+
+### One-time setup
+
+1. **Google Cloud project**: go to [console.cloud.google.com](https://console.cloud.google.com), create
+   a project (or reuse one), and enable the **Gmail API** under APIs & Services → Library.
+2. **OAuth consent screen**: APIs & Services → OAuth consent screen → External → fill in an app name and
+   your email → save. You can leave it in **Testing** mode (no Google review needed) — under "Test
+   users," add the Gmail address you want to scan.
+3. **OAuth client**: APIs & Services → Credentials → Create Credentials → OAuth client ID → type
+   **Web application**. Under "Authorized redirect URIs," add:
+   `https://<your-vercel-domain>/api/gmail/callback`
+   (your deployed app's domain — e.g. `https://invoice-processor-v2.vercel.app/api/gmail/callback`).
+   Save, then copy the **Client ID** and **Client secret**.
+4. In Vercel, add environment variables `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` with those values
+   (Production + Preview), and redeploy.
+5. Visit `https://<your-vercel-domain>/api/gmail/auth` in your browser, sign in with the Gmail account to
+   scan, and approve access. You'll land on a page showing a refresh token — copy it into a
+   `GMAIL_REFRESH_TOKEN` environment variable in Vercel (Production + Preview), then redeploy once more.
+   That page only shows the token once; if you ever need a new one, revoke the app's access at
+   [myaccount.google.com/permissions](https://myaccount.google.com/permissions) and repeat this step.
+
+Once all three `GMAIL_*` variables are set, "Scan Gmail" in the Extract panel works. Without them, it
+fails with a clear "Gmail is not connected yet" error instead of a silent failure.
+
 ## What changed vs the original app
 
 - Extraction: `api/extract.ts` calls the Anthropic Messages API (`claude-opus-4-8`) with a JSON-schema
@@ -43,3 +78,5 @@ Alternatively, push to a branch and test against the Vercel Preview deployment i
   lighter, flatter look.
 - All original functionality is preserved: multi-sheet tabs, undo/redo, cell styling, dynamic columns,
   CSV/Excel export, and the extraction-logic PDF export.
+- New: a manual "Scan Gmail" source in the Extract panel (see above) — the extraction logic itself is
+  shared between `api/extract.ts` and `api/gmail-scan.ts` via `lib/extractInvoice.ts`.
