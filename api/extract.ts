@@ -57,10 +57,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     You are an expert Invoice Processing AI with advanced reasoning capabilities.
 
     TASK:
-    Extract line items from the invoice into a structured JSON array matching the required schema.
-
-    COLUMNS TO EXTRACT:
-    ${columnNames}
+    Extract line items from the invoice into a JSON array of objects. Each object must have exactly
+    these keys: ${columnNames}, and "Quantity".
 
     *** PRIORITY INSTRUCTION ***
     The "USER OVERRIDES" section below contains custom business rules.
@@ -77,6 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     3. Dates must be MM/DD/YYYY.
     4. "Purchase Price" should be the unit price.
     5. **STATUS:** If the columns list includes "Status", the value must ALWAYS be "Ordered". Never use "New", "Pending", or any other status.
+    6. **IGNORE CANCELLED LINES:** Do NOT extract line items listed under a "Deleted Lines", "Cancelled", "Voided", or similarly struck-through/removed section — only extract active line items that are part of the current order.
 
     MANUFACTURER, MODEL #, PRODUCT NAME RULES:
     1. MANUFACTURER: The actual equipment maker. Do not infer if not stated.
@@ -99,19 +98,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     If this says "All", process every page.
     If it specifies a range (e.g., "1-3"), ONLY extract items visible on those specific pages.
 
-    Return a JSON array conforming exactly to the provided schema. Every property listed is required on every item — use an empty string ("") for text fields with no value, and 0 for numeric fields with no value.
+    Every key must be present on every object — use an empty string ("") for text/date fields with no
+    value, and 0 for numeric fields with no value.
+
+    OUTPUT FORMAT: Return ONLY a raw JSON array. No markdown code fences, no commentary, no
+    explanation — the response body must start with "[" and end with "]".
   `;
-
-  // Dynamically build the JSON schema for structured output
-  const properties: Record<string, { type: string }> = {
-    Quantity: { type: 'integer' },
-  };
-  const requiredFields = ['Quantity'];
-
-  columns.forEach((col) => {
-    properties[col.label] = { type: col.type === 'number' ? 'number' : 'string' };
-    requiredFields.push(col.label);
-  });
 
   const isImage = mimeType.startsWith('image/');
   const documentBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam = isImage
@@ -136,20 +128,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ],
         },
       ],
-      output_config: {
-        format: {
-          type: 'json_schema',
-          schema: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties,
-              required: requiredFields,
-              additionalProperties: false,
-            },
-          },
-        },
-      },
     });
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
@@ -158,7 +136,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const rawData: RawInvoiceItem[] = JSON.parse(textBlock.text);
+    // Claude sometimes wraps the JSON in a markdown code fence despite being
+    // told not to — strip it before parsing.
+    const cleanedText = textBlock.text
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+
+    let rawData: RawInvoiceItem[];
+    try {
+      rawData = JSON.parse(cleanedText);
+    } catch {
+      res.status(502).json({ error: 'Claude returned a response that was not valid JSON.' });
+      return;
+    }
+
     const expandedData: InvoiceItem[] = [];
 
     // Row expansion logic — flatten "Quantity: N" into N individual rows
