@@ -247,6 +247,9 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                               <div className="bg-brand h-full transition-all" style={{ width: `${s.progress}%` }} />
                             </div>
                           )}
+                          {s.status === 'error' && s.errorMessage && (
+                            <p className="text-[11px] text-red-600 leading-snug break-words">{s.errorMessage}</p>
+                          )}
                         </div>
                       );
                     })}
