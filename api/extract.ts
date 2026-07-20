@@ -9,6 +9,14 @@ interface RawInvoiceItem extends InvoiceItem {
 
 const MODEL = 'claude-opus-4-8';
 
+// Vercel functions default to a 10s timeout on most plans; Claude with
+// adaptive thinking on a multi-page invoice can easily take longer than
+// that. Raise it explicitly. (Hobby plan caps this at 60s; Pro/Enterprise
+// allow more — see https://vercel.com/docs/functions/configuring-functions/duration)
+export const config = {
+  maxDuration: 60,
+};
+
 interface ExtractRequestBody {
   base64Data: string;
   mimeType: string;
