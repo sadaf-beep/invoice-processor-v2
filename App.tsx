@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Sparkles, Plus, X, Undo, Redo, Bold, Italic,
-  AlignLeft, AlignCenter, AlignRight, Trash2, ChevronDown, Download,
+  AlignLeft, AlignCenter, AlignRight, Trash2,
   Eraser, BookOpen, FileSpreadsheet, FileText, Search, Sun, Moon, UploadCloud,
+  FileUp, FolderArchive, ArrowUpToLine,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { downloadSOP } from './lib/sopGenerator';
@@ -11,7 +12,7 @@ import { Spreadsheet } from './components/Spreadsheet';
 import { EmptyState } from './components/EmptyState';
 import { Toaster, Toast, ToastKind } from './components/Toast';
 import { InvoiceItem, ColumnConfig, DEFAULT_COLUMNS, Sheet, DEFAULT_INSTRUCTIONS, CellStyle } from './types';
-import { generateExcel, generateCSV } from './services/excelService';
+import { generateExcel, generateCSV, generateAllZip, parseCSVFile } from './services/excelService';
 
 interface HistoryState {
   data: InvoiceItem[];
@@ -41,7 +42,7 @@ const App: React.FC = () => {
   const [selectedCell, setSelectedCell] = useState<{ r: number; c: string } | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
 
-  const [activeMenu, setActiveMenu] = useState<'file' | 'edit' | 'view' | 'export' | null>(null);
+  const [activeMenu, setActiveMenu] = useState<'file' | 'edit' | 'view' | null>(null);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [tempTabName, setTempTabName] = useState('');
 
@@ -153,6 +154,36 @@ const App: React.FC = () => {
 
   const handleAddRow = () => {
     updateActiveSheet({ data: [...activeSheet.data, {}] });
+  };
+
+  const handleInsertRowAbove = () => {
+    const at = selectedRowIndex ?? 0;
+    const newData = [...activeSheet.data];
+    newData.splice(at, 0, {});
+    updateActiveSheet({ data: newData });
+    setSelectedRowIndex(at);
+  };
+
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const handleImportCSVFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const items = await parseCSVFile(file, activeSheet.columns);
+      updateActiveSheet({ data: [...activeSheet.data, ...items] });
+      pushToast('success', `Imported ${items.length} row${items.length === 1 ? '' : 's'}`, file.name);
+    } catch (err) {
+      pushToast('error', `Couldn't import ${file.name}`, err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleExportAllZip = async () => {
+    try {
+      await generateAllZip(sheets, 'all_invoices.zip');
+    } catch (err) {
+      pushToast('error', "Couldn't export sheets", err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleBatchChange = (updates: { r: number; c: string; v: string }[]) => {
@@ -271,12 +302,20 @@ const App: React.FC = () => {
           <AnimatePresence>
             {activeMenu === 'file' && (
               <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} className="menu-pop left-0">
-                <button onClick={() => downloadSOP()} className="menu-item"><BookOpen size={15} className="text-[color:var(--color-ink-muted)]" /> Download logic (PDF)</button>
+                <button onClick={() => setIsPanelOpen(true)} className="menu-item"><UploadCloud size={15} className="text-[color:var(--color-ink-muted)]" /> Upload invoice…</button>
+                <button onClick={() => csvInputRef.current?.click()} className="menu-item"><FileUp size={15} className="text-[color:var(--color-ink-muted)]" /> Import CSV…</button>
+                <div className="h-px bg-[color:var(--color-line)] my-1 mx-2" />
+                <button onClick={handleExportAllZip} className="menu-item"><FolderArchive size={15} className="text-[color:var(--color-ink-muted)]" /> Export all invoices (.zip)</button>
+                <button onClick={() => generateExcel(activeSheet.data, activeSheet.columns, `${activeSheet.name}.xlsx`)} className="menu-item"><FileSpreadsheet size={15} className="text-[color:var(--color-positive)]" /> Export this sheet (Excel)</button>
+                <button onClick={() => generateCSV(activeSheet.data, activeSheet.columns, `${activeSheet.name}.csv`)} className="menu-item"><FileText size={15} className="text-[color:var(--color-ink-muted)]" /> Export this sheet (CSV)</button>
+                <div className="h-px bg-[color:var(--color-line)] my-1 mx-2" />
+                <button onClick={() => downloadSOP()} className="menu-item"><BookOpen size={15} className="text-[color:var(--color-ink-muted)]" /> Download extraction logic (PDF)</button>
                 <div className="h-px bg-[color:var(--color-line)] my-1 mx-2" />
                 <button onClick={handleClearAll} className="menu-item" style={{ color: 'var(--color-danger)' }}><Eraser size={15} /> Clear sheet</button>
               </motion.div>
             )}
           </AnimatePresence>
+          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSVFile} />
         </div>
 
         <div className="relative">
@@ -287,6 +326,7 @@ const App: React.FC = () => {
                 <button onClick={handleUndo} disabled={history.length === 0} className="menu-item"><Undo size={15} className="text-[color:var(--color-ink-muted)]" /> Undo</button>
                 <button onClick={handleRedo} disabled={future.length === 0} className="menu-item"><Redo size={15} className="text-[color:var(--color-ink-muted)]" /> Redo</button>
                 <div className="h-px bg-[color:var(--color-line)] my-1 mx-2" />
+                <button onClick={handleInsertRowAbove} className="menu-item"><ArrowUpToLine size={15} className="text-[color:var(--color-ink-muted)]" /> Insert row above</button>
                 <button onClick={handleDeleteRow} disabled={selectedRowIndex === null} className="menu-item"><Trash2 size={15} className="text-[color:var(--color-ink-muted)]" /> Delete row</button>
               </motion.div>
             )}
@@ -338,20 +378,6 @@ const App: React.FC = () => {
             {theme === 'dark' ? <Moon size={11} className="text-[color:var(--color-brand)]" /> : <Sun size={11} className="text-[color:var(--color-warning)]" />}
           </div>
         </button>
-
-        <div className="relative mr-1.5">
-          <button onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'export' ? null : 'export'); }} className="btn-secondary">
-            <Download size={14} /> Export <ChevronDown size={12} className="opacity-60" />
-          </button>
-          <AnimatePresence>
-            {activeMenu === 'export' && (
-              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} className="menu-pop right-0">
-                <button onClick={() => generateExcel(activeSheet.data, activeSheet.columns, `${activeSheet.name}.xlsx`)} className="menu-item"><FileSpreadsheet size={15} className="text-[color:var(--color-positive)]" /> Export to Excel</button>
-                <button onClick={() => generateCSV(activeSheet.data, activeSheet.columns, `${activeSheet.name}.csv`)} className="menu-item"><FileText size={15} className="text-[color:var(--color-ink-muted)]" /> Export to CSV</button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
 
         <button onClick={() => setIsPanelOpen(true)} className="btn-primary"><Sparkles size={14} /> Extract Data</button>
       </header>

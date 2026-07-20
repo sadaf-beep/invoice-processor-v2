@@ -12,6 +12,7 @@
     "@anthropic-ai/sdk": "^0.112.3",
     "framer-motion": "^12.38.0",
     "jspdf": "^4.2.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
