@@ -107,21 +107,34 @@ export async function getAttachmentBase64(accessToken: string, messageId: string
   return base64UrlToBase64(data.data);
 }
 
-export async function ensureProcessedLabelId(accessToken: string): Promise<string> {
+async function findLabelId(accessToken: string): Promise<string | null> {
   const data = await gmailFetch(accessToken, '/labels');
   const existing = (data.labels || []).find((l: { name: string }) => l.name === PROCESSED_LABEL_NAME);
-  if (existing) return existing.id;
+  return existing?.id ?? null;
+}
 
-  const created = await gmailFetch(accessToken, '/labels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: PROCESSED_LABEL_NAME,
-      labelListVisibility: 'labelHide',
-      messageListVisibility: 'hide',
-    }),
-  });
-  return created.id;
+export async function ensureProcessedLabelId(accessToken: string): Promise<string> {
+  const existingId = await findLabelId(accessToken);
+  if (existingId) return existingId;
+
+  try {
+    const created = await gmailFetch(accessToken, '/labels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: PROCESSED_LABEL_NAME,
+        labelListVisibility: 'labelHide',
+        messageListVisibility: 'hide',
+      }),
+    });
+    return created.id;
+  } catch (err) {
+    // Another concurrent scan may have just created it (Gmail returns 409
+    // "Label name exists or conflicts") — re-check before giving up.
+    const nowExistingId = await findLabelId(accessToken);
+    if (nowExistingId) return nowExistingId;
+    throw err;
+  }
 }
 
 export async function markProcessed(accessToken: string, messageId: string, labelId: string): Promise<void> {
