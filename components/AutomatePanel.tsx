@@ -188,7 +188,9 @@ export const AutomatePanel: React.FC<AutomatePanelProps> = ({ isOpen, onClose, o
                       <span className="text-[11px] text-[color:var(--color-ink-muted)] ml-1">{settings.timezone}</span>
                     </div>
                     <p className="text-[11px] text-[color:var(--color-ink-muted)]">
-                      The scan checks every 15 minutes and runs once it's past this time each day.
+                      On the free Vercel plan, the scan actually fires once a day at a fixed time set in code
+                      (not this picker) — saving here won't move the real fire time unless the project is on
+                      Vercel Pro. Use <strong>Run automation now</strong> below for anything time-sensitive.
                     </p>
                   </section>
 

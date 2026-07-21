@@ -27,15 +27,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // This endpoint now fires every 15 minutes (see vercel.json) rather than
-  // once a day, so the adjustable in-app time (Automate panel) can take
-  // effect without a redeploy. Supabase holds the actual "run at HH:MM" the
-  // user picked, and is the gate deciding whether this particular firing
-  // should actually do anything.
+  // Vercel's Hobby plan caps cron jobs at once per day (a schedule firing
+  // more often fails the *entire deployment*, not just this endpoint) — so
+  // this fires once daily at the fixed UTC time in vercel.json. The
+  // Automate panel's "enabled" toggle still fully gates whether this single
+  // daily firing actually does anything; the run-time picker there is only
+  // live if this project is on Vercel Pro or higher (which allows the cron
+  // itself to poll more frequently and check a chosen time).
   if (!isSupabaseConfigured()) {
-    // No schedule store means no safe way to tell "is it time yet" — skip
-    // rather than run the full pipeline on every 15-minute tick.
-    res.status(200).json({ skipped: 'Supabase not configured; automation schedule unavailable.' });
+    // No settings store means no way to check "enabled" — skip rather than
+    // run unconditionally on every fire.
+    res.status(200).json({ skipped: 'Supabase not configured; automation settings unavailable.' });
     return;
   }
 
@@ -46,15 +48,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const { hour, minute, dateStr } = nowInTimezone(settings.timezone);
+    const { dateStr } = nowInTimezone(settings.timezone);
     if (dateStr === settings.lastRunDate) {
       res.status(200).json({ skipped: 'already ran today', dateStr });
-      return;
-    }
-    const nowMinutes = hour * 60 + minute;
-    const scheduledMinutes = settings.runHour * 60 + settings.runMinute;
-    if (nowMinutes < scheduledMinutes) {
-      res.status(200).json({ skipped: 'not yet time', nowMinutes, scheduledMinutes });
       return;
     }
 
