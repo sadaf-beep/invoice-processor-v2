@@ -47,7 +47,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
   const [isScanningGmail, setIsScanningGmail] = useState(false);
   const [gmailResults, setGmailResults] = useState<GmailScanMessageResult[] | null>(null);
   const [gmailError, setGmailError] = useState<string | null>(null);
-  const [gmailDebug, setGmailDebug] = useState<{ account: string; query: string; matchCount: number } | null>(null);
+  const [gmailDebug, setGmailDebug] = useState<{ account: string; query: string; matchCount: number; labelError?: string | null } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -347,6 +347,11 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                         <p className="text-[10.5px] font-mono text-[color:var(--color-ink-muted)] break-all">Account: {gmailDebug.account}</p>
                         <p className="text-[10.5px] font-mono text-[color:var(--color-ink-muted)] break-all">Query: {gmailDebug.query}</p>
                         <p className="text-[10.5px] font-mono text-[color:var(--color-ink-muted)]">Matched: {gmailDebug.matchCount}</p>
+                        {gmailDebug.labelError && (
+                          <p className="text-[10.5px] font-mono text-[color:var(--color-danger)] break-all">
+                            Dedup label unavailable this run (every match was reprocessed): {gmailDebug.labelError}
+                          </p>
+                        )}
                       </div>
                     )}
 

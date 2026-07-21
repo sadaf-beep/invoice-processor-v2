@@ -61,7 +61,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const accessToken = await getAccessToken(gmailEnv);
     const profile = await getProfile(accessToken);
-    const labelId = await ensureProcessedLabelId(accessToken);
+
+    // Dedup is a nice-to-have, not core functionality — a label hiccup
+    // shouldn't block the actual search + extraction from running at all.
+    // A null labelId just means every match this run gets (re-)processed
+    // and none get marked, rather than the whole scan failing outright.
+    let labelId: string | null = null;
+    let labelError: string | null = null;
+    try {
+      labelId = await ensureProcessedLabelId(accessToken);
+    } catch (err) {
+      labelError = err instanceof Error ? err.message : String(err);
+      console.error('ensureProcessedLabelId failed, continuing without dedup:', labelError);
+    }
 
     // Deliberately no "-label:" clause here — Gmail's search parser handles
     // quoted label-name exclusions inconsistently (confirmed by reproducing
@@ -78,13 +90,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const subject = getHeader(message, 'Subject') || '(no subject)';
       const from = getHeader(message, 'From') || '';
 
-      if (message.labelIds?.includes(labelId)) {
+      if (labelId && message.labelIds?.includes(labelId)) {
         continue;
       }
 
       const attachments = findPdfAttachments(message);
       if (attachments.length === 0) {
-        await markProcessed(accessToken, id, labelId);
+        if (labelId) await markProcessed(accessToken, id, labelId);
         messages.push({ id, subject, from, status: 'skipped', itemCount: 0 });
         continue;
       }
@@ -103,7 +115,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           items.push(...extracted);
           messageItemCount += extracted.length;
         }
-        await markProcessed(accessToken, id, labelId);
+        if (labelId) await markProcessed(accessToken, id, labelId);
         messages.push({ id, subject, from, status: 'processed', itemCount: messageItemCount });
       } catch (err) {
         // Left unlabeled on failure so the next scan retries it.
@@ -111,7 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    res.status(200).json({ items, messages, debug: { account: profile.emailAddress, query, matchCount: messageIds.length } });
+    res.status(200).json({ items, messages, debug: { account: profile.emailAddress, query, matchCount: messageIds.length, labelError } });
   } catch (error) {
     console.error('Gmail scan error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });

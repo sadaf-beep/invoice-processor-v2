@@ -12,7 +12,7 @@ export interface GmailScanMessageResult {
 export interface GmailScanResult {
   items: InvoiceItem[];
   messages: GmailScanMessageResult[];
-  debug?: { account: string; query: string; matchCount: number };
+  debug?: { account: string; query: string; matchCount: number; labelError?: string | null };
 }
 
 // Calls /api/gmail-scan — server-side only, holds the Gmail OAuth tokens.
