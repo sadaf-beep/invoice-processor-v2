@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { InvoiceItem, ColumnConfig } from '../types';
+import { InvoiceItem, ColumnConfig } from '../types.js';
 
 // Internal interface that includes Quantity for processing logic
 interface RawInvoiceItem extends InvoiceItem {

@@ -1,12 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
-import { ColumnConfig, InvoiceItem } from '../types';
-import { extractInvoiceItems } from '../lib/extractInvoice';
+import { ColumnConfig, InvoiceItem } from '../types.js';
+import { extractInvoiceItems } from '../lib/extractInvoice.js';
 import {
   readGmailEnv, getAccessToken, listMessageIds, getMessage, getHeader,
   findPdfAttachments, getAttachmentBase64, ensureProcessedLabelId, markProcessed,
   PROCESSED_LABEL_NAME,
-} from '../lib/gmailClient';
+} from '../lib/gmailClient.js';
 
 // Manual scan can involve several sequential Claude calls (one per PDF) —
 // give it the same headroom as a single extraction, times a few messages.

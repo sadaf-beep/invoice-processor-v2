@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
-import { ColumnConfig } from '../types';
-import { extractInvoiceItems } from '../lib/extractInvoice';
+import { ColumnConfig } from '../types.js';
+import { extractInvoiceItems } from '../lib/extractInvoice.js';
 
 // Vercel functions default to a 10s timeout on most plans; Claude with
 // adaptive thinking on a multi-page invoice can easily take longer than
