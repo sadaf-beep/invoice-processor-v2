@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X, UploadCloud, FileText, Bot, RotateCcw,
-  CheckCircle2, AlertCircle, Loader2, Sparkles, Mail, MailX,
+  CheckCircle2, AlertCircle, Loader2, Sparkles, Mail, MailX, Plus,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ColumnConfig, Sheet, InvoiceItem } from '../types';
@@ -49,8 +49,32 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
   const [gmailResults, setGmailResults] = useState<GmailScanMessageResult[] | null>(null);
   const [gmailError, setGmailError] = useState<string | null>(null);
   const [gmailDebug, setGmailDebug] = useState<{ account: string; query: string; matchCount: number; labelError?: string | null } | null>(null);
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const startAddColumn = () => {
+    const base = 'New Column';
+    const existingIds = new Set(activeSheet.columns.map((c) => c.id.toLowerCase()));
+    let name = base;
+    let n = 2;
+    while (existingIds.has(name.toLowerCase())) {
+      name = `${base} ${n}`;
+      n++;
+    }
+    setNewColumnName(name);
+    setIsAddingColumn(true);
+  };
+
+  const commitAddColumn = () => {
+    const trimmed = newColumnName.trim();
+    if (trimmed) {
+      const newCol: ColumnConfig = { id: trimmed, label: trimmed, type: 'string', required: false };
+      onConfigChange([...activeSheet.columns, newCol], activeSheet.customInstructions);
+    }
+    setIsAddingColumn(false);
+  };
 
   useEffect(() => {
     if (!isProcessingGlobal && isOpen) {
@@ -409,16 +433,35 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                 </div>
               </section>
 
-              {/* Columns — editable directly in the grid (add/rename/delete on the headers) */}
+              {/* Columns — addable here, or rename/delete directly on the sheet's headers */}
               <section className="space-y-2.5">
                 <h3 className={sectionLabel}>Columns extracted</h3>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 items-center">
                   {activeSheet.columns.map((col) => (
                     <span key={col.id} className="rchip">{col.label}</span>
                   ))}
+                  {isAddingColumn ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={newColumnName}
+                      onChange={(e) => setNewColumnName(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onBlur={commitAddColumn}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitAddColumn();
+                        if (e.key === 'Escape') setIsAddingColumn(false);
+                      }}
+                      className="rchip w-32 outline-none border border-[color:var(--color-brand)] bg-[color:var(--color-surface)]"
+                    />
+                  ) : (
+                    <button onClick={startAddColumn} className="rchip hover:border-[color:var(--color-brand)] hover:text-[color:var(--color-brand)] transition-colors">
+                      <Plus size={11} /> Add column
+                    </button>
+                  )}
                 </div>
                 <p className="text-[11px] text-[color:var(--color-ink-muted)]">
-                  Add or rename columns directly on the sheet's headers — use the note below to tell Claude what should go in a new one.
+                  Use the note below to tell Claude what should go in a new column. Rename or delete existing ones on the sheet's headers.
                 </p>
               </section>
 
