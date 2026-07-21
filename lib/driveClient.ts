@@ -45,6 +45,13 @@ export async function ensureDateFolder(accessToken: string, dateStr: string): Pr
   return findOrCreateFolder(accessToken, dateStr, rootId);
 }
 
+// A browsable link to the folder itself — for a Slack message pointing at
+// the whole day's batch rather than one file at a time.
+export async function getFolderLink(accessToken: string, folderId: string): Promise<string> {
+  const data = await driveFetch(accessToken, `${DRIVE_API}/files/${folderId}?fields=webViewLink`);
+  return data.webViewLink;
+}
+
 export interface UploadedFile {
   id: string;
   webViewLink: string;

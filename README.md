@@ -95,6 +95,9 @@ Bangladesh time / GMT+6)**. Each run:
 3. Archives the source PDF(s) and a generated CSV to Google Drive, under a dated folder:
    `InvoiceIntel/<YYYY-MM-DD>/`.
 4. If anything was processed, emails you a summary with the CSV(s) attached.
+5. If a `SLACK_WEBHOOK_URL` is configured, also posts a Slack message with the same summary — which
+   invoice(s) were processed, a link to each CSV, and a link to open that day's Drive folder. This step is
+   optional and skipped entirely if the env var isn't set.
 
 There's no database and no in-app history view — email and the Drive archive are the record. (An earlier
 version of this also logged runs to Postgres for an in-app review panel; removed to keep setup to just
@@ -111,13 +114,22 @@ the steps below.)
    automatically sends this as a bearer token when it invokes the cron job, which is how
    `api/cron/daily-scan.ts` verifies the request actually came from Vercel and not an outsider hitting the
    URL directly.
-3. Redeploy after setting all of the above.
-4. **Test it manually** before waiting for the real 6am run — from your own machine (not from inside the
+3. **Slack notification (optional)**: if you'd also like a Slack message alongside the email, create an
+   [Incoming Webhook](https://api.slack.com/messaging/webhooks) — in Slack, go to
+   `api.slack.com/apps` → **Create New App** → **From scratch** → name it and pick your workspace → under
+   **Incoming Webhooks**, toggle it on → **Add New Webhook to Workspace** → choose the channel to post to →
+   copy the generated URL. Set it as a `SLACK_WEBHOOK_URL` environment variable in Vercel (Production).
+   This needs no bot, no OAuth flow, and no extra scopes — it's just a URL the cron job posts a JSON message
+   to. Skip this step entirely if you don't want Slack notifications; email + Drive archival work the same
+   either way.
+4. Redeploy after setting all of the above.
+5. **Test it manually** before waiting for the real 6am run — from your own machine (not from inside the
    app):
    ```
    curl -H "Authorization: Bearer <your CRON_SECRET>" https://<your-vercel-domain>/api/cron/daily-scan
    ```
-   Check the response, your Drive `InvoiceIntel` folder, and your inbox to confirm all three pieces worked.
+   Check the response, your Drive `InvoiceIntel` folder, your inbox, and (if configured) Slack to confirm
+   everything worked.
 
 ## What changed vs the original app
 
@@ -132,4 +144,4 @@ the steps below.)
 - New: a manual "Scan Gmail" source in the Extract panel (see above) — the extraction logic itself is
   shared between `api/extract.ts` and `api/gmail-scan.ts` via `lib/extractInvoice.ts`.
 - New: unattended daily automation (see **Daily automation** above) — a Vercel Cron job that scans,
-  extracts, archives to Drive, and emails a summary.
+  extracts, archives to Drive, emails a summary, and optionally posts a Slack notification.

@@ -3,8 +3,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { DEFAULT_COLUMNS } from '../../types.js';
 import { readGmailEnv, getAccessToken, getProfile, sendEmail, EmailAttachment } from '../../lib/gmailClient.js';
 import { scanInvoiceEmails } from '../../lib/invoiceScan.js';
-import { ensureDateFolder, uploadFile } from '../../lib/driveClient.js';
+import { ensureDateFolder, getFolderLink, uploadFile } from '../../lib/driveClient.js';
 import { toCsvString } from '../../lib/csv.js';
+import { postSlackMessage } from '../../lib/slackClient.js';
 
 export const config = {
   maxDuration: 60,
@@ -62,11 +63,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let folderId: string | null = null;
     const emailAttachments: EmailAttachment[] = [];
     const summaryLines: string[] = [];
+    const slackLines: string[] = [];
     let processedCount = 0;
 
     for (const message of messages) {
       if (message.status === 'error') {
         summaryLines.push(`✗ ${message.fileName}: ${message.error}`);
+        slackLines.push(`✗ *${message.fileName}*: ${message.error}`);
         continue;
       }
       if (message.status === 'skipped') {
@@ -88,7 +91,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const csvString = toCsvString(message.items, DEFAULT_COLUMNS);
         const csvName = `${message.fileName.replace(/\.pdf$/i, '')}.csv`;
-        await uploadFile(accessToken, {
+        const uploadedCsv = await uploadFile(accessToken, {
           name: csvName,
           mimeType: 'text/csv',
           base64Data: Buffer.from(csvString, 'utf-8').toString('base64'),
@@ -97,10 +100,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         emailAttachments.push({ filename: csvName, content: Buffer.from(csvString, 'utf-8').toString('base64'), contentType: 'text/csv' });
         summaryLines.push(`✓ ${message.fileName}: ${message.itemCount} row${message.itemCount === 1 ? '' : 's'}`);
+        slackLines.push(`✓ *${message.fileName}*: ${message.itemCount} row${message.itemCount === 1 ? '' : 's'} — <${uploadedCsv.webViewLink}|CSV>`);
         processedCount++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         summaryLines.push(`✗ ${message.fileName} (archive step): ${msg}`);
+        slackLines.push(`✗ *${message.fileName}* (archive step): ${msg}`);
       }
     }
 
@@ -111,6 +116,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         text: `Daily scan for ${runDate}:\n\n${summaryLines.join('\n')}\n\nArchived to Google Drive under InvoiceIntel/${runDate}.`,
         attachments: emailAttachments,
       });
+
+      const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
+      if (slackWebhookUrl) {
+        const folderLink = folderId ? await getFolderLink(accessToken, folderId) : null;
+        const folderLine = folderLink ? `\n📁 <${folderLink}|Open today's Drive folder>` : '';
+        await postSlackMessage(
+          slackWebhookUrl,
+          `*InvoiceIntel — ${processedCount} invoice${processedCount === 1 ? '' : 's'} processed (${runDate})*\n${slackLines.join('\n')}${folderLine}`
+        );
+      }
     }
 
     res.status(200).json({ ranAt: runDate, processed: processedCount, total: messages.length, debug });
