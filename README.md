@@ -41,7 +41,7 @@ runs them through the same Claude extraction as a normal upload, and appends the
 sheet. It's a manual, on-demand scan for now — the daily automated version is a later phase.
 
 **How dedup works:** there's no separate database. Processed messages get a Gmail label
-(`InvoiceIntel/Processed`) applied via the API itself, and the scan query excludes that label — so
+(`InvoiceIntel-Processed`) applied via the API itself, and the scan query excludes that label — so
 re-running the scan never reprocesses the same email twice, and a message only gets labeled after a
 successful extraction (so a failed one is retried on the next scan).
 

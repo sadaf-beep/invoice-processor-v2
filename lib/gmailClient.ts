@@ -1,5 +1,8 @@
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
-const PROCESSED_LABEL_NAME = 'InvoiceIntel/Processed';
+// Flat name (no "/") — a slash creates a nested label, and Gmail's search
+// parser handles quoted nested-label paths inconsistently, silently
+// zeroing out results instead of treating it as a literal no-op exclusion.
+const PROCESSED_LABEL_NAME = 'InvoiceIntel-Processed';
 
 export interface GmailEnv {
   clientId: string;
