@@ -69,6 +69,10 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
   const [resizing, setResizing] = useState<{ colId: string; startX: number; startWidth: number; liveWidth: number } | null>(null);
 
   const gridContainerRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [scrollMetrics, setScrollMetrics] = useState({ top: 0, left: 0, scrollHeight: 0, scrollWidth: 0, clientHeight: 0, clientWidth: 0 });
+  const [vDrag, setVDrag] = useState<{ startY: number; startTop: number } | null>(null);
+  const [hDrag, setHDrag] = useState<{ startX: number; startLeft: number } | null>(null);
 
   const hasCustomOrder = visibleIndices !== undefined;
   const rowCount = Math.max(data.length, 50);
@@ -127,6 +131,66 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
     e.stopPropagation();
     setResizing({ colId: col.id, startX: e.clientX, startWidth: col.width ?? DEFAULT_COL_WIDTH, liveWidth: col.width ?? DEFAULT_COL_WIDTH });
   };
+
+  // Custom always-visible scrollbars — native ones are hidden on this
+  // container because OS-level "only show while scrolling" settings (common
+  // on macOS) make them disappear entirely otherwise, with no way to tell
+  // there's more content below/right. Native wheel/trackpad/keyboard
+  // scrolling still works as-is; this is a visible, draggable overlay
+  // that mirrors it.
+  useEffect(() => {
+    const el = scrollAreaRef.current;
+    if (!el) return;
+    const update = () => setScrollMetrics({
+      top: el.scrollTop, left: el.scrollLeft,
+      scrollHeight: el.scrollHeight, scrollWidth: el.scrollWidth,
+      clientHeight: el.clientHeight, clientWidth: el.clientWidth,
+    });
+    update();
+    el.addEventListener('scroll', update);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [data, columns, displayIndices.length]);
+
+  useEffect(() => {
+    if (!vDrag) return;
+    const handleMove = (e: MouseEvent) => {
+      const el = scrollAreaRef.current;
+      if (!el) return;
+      const trackHeight = el.clientHeight;
+      const ratio = el.scrollHeight / trackHeight;
+      el.scrollTop = vDrag.startTop + (e.clientY - vDrag.startY) * ratio;
+    };
+    const handleUp = () => setVDrag(null);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [vDrag]);
+
+  useEffect(() => {
+    if (!hDrag) return;
+    const handleMove = (e: MouseEvent) => {
+      const el = scrollAreaRef.current;
+      if (!el) return;
+      const trackWidth = el.clientWidth;
+      const ratio = el.scrollWidth / trackWidth;
+      el.scrollLeft = hDrag.startLeft + (e.clientX - hDrag.startX) * ratio;
+    };
+    const handleUp = () => setHDrag(null);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [hDrag]);
 
   const startRename = (col: ColumnConfig, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -276,7 +340,7 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
   return (
     <div
       ref={gridContainerRef}
-      className="flex-1 bg-[color:var(--color-surface)] flex flex-col overflow-hidden relative select-none outline-none"
+      className="h-full w-full bg-[color:var(--color-surface)] flex flex-col overflow-hidden relative select-none outline-none"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
@@ -292,7 +356,8 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
         <div className="px-3 text-[12.5px] text-[color:var(--color-ink)] truncate flex-1">{activeCellValue}</div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-h-0 relative overflow-hidden">
+      <div ref={scrollAreaRef} className="w-full h-full overflow-auto no-scrollbar">
         <table className="border-collapse text-[13px] table-fixed" style={{ width: ROW_GUTTER_WIDTH + columns.reduce((sum, c) => sum + colWidth(c), 0) + 40 }}>
           <thead className="sticky top-0 z-20">
             <tr className="border-b border-[color:var(--color-line-strong)]">
@@ -493,6 +558,39 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
         {isFiltered && displayIndices.length === 0 && (
           <div className="py-16 text-center text-[13px] text-[color:var(--color-ink-muted)]">No rows match this filter.</div>
         )}
+      </div>
+
+      {/* Custom always-visible scrollbars — see the note above the tracking effect */}
+      {scrollMetrics.scrollHeight > scrollMetrics.clientHeight && (
+        <div className="absolute top-0 right-0 bottom-0 w-[12px] z-40">
+          <div
+            onMouseDown={(e) => { e.preventDefault(); setVDrag({ startY: e.clientY, startTop: scrollMetrics.top }); }}
+            className="absolute right-[2px] w-[8px] rounded-full bg-[color:var(--color-line-strong)] hover:bg-[color:var(--color-ink-muted)] active:bg-[color:var(--color-ink-muted)] cursor-pointer transition-colors"
+            style={{
+              top: `${Math.min(
+                (scrollMetrics.top / scrollMetrics.scrollHeight) * scrollMetrics.clientHeight,
+                scrollMetrics.clientHeight - Math.max(24, (scrollMetrics.clientHeight / scrollMetrics.scrollHeight) * scrollMetrics.clientHeight)
+              )}px`,
+              height: `${Math.max(24, (scrollMetrics.clientHeight / scrollMetrics.scrollHeight) * scrollMetrics.clientHeight)}px`,
+            }}
+          />
+        </div>
+      )}
+      {scrollMetrics.scrollWidth > scrollMetrics.clientWidth && (
+        <div className="absolute bottom-0 left-0 right-[12px] h-[12px] z-40">
+          <div
+            onMouseDown={(e) => { e.preventDefault(); setHDrag({ startX: e.clientX, startLeft: scrollMetrics.left }); }}
+            className="absolute bottom-[2px] h-[8px] rounded-full bg-[color:var(--color-line-strong)] hover:bg-[color:var(--color-ink-muted)] active:bg-[color:var(--color-ink-muted)] cursor-pointer transition-colors"
+            style={{
+              left: `${Math.min(
+                (scrollMetrics.left / scrollMetrics.scrollWidth) * scrollMetrics.clientWidth,
+                scrollMetrics.clientWidth - Math.max(24, (scrollMetrics.clientWidth / scrollMetrics.scrollWidth) * scrollMetrics.clientWidth)
+              )}px`,
+              width: `${Math.max(24, (scrollMetrics.clientWidth / scrollMetrics.scrollWidth) * scrollMetrics.clientWidth)}px`,
+            }}
+          />
+        </div>
+      )}
       </div>
     </div>
   );

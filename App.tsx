@@ -501,7 +501,7 @@ const App: React.FC = () => {
       )}
 
       {/* Main */}
-      <main className="flex-1 overflow-hidden relative">
+      <main className="flex-1 min-h-0 overflow-hidden relative">
         {isEmpty ? (
           <EmptyState onExtract={() => setIsPanelOpen(true)} onAddRow={handleAddRow} columns={activeSheet.columns} />
         ) : (
