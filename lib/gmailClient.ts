@@ -100,7 +100,13 @@ export function findPdfAttachments(message: GmailMessage): PdfAttachmentRef[] {
   return found;
 }
 
-const base64UrlToBase64 = (data: string): string => data.replace(/-/g, '+').replace(/_/g, '/');
+const base64UrlToBase64 = (data: string): string => {
+  // Gmail returns unpadded base64url — restore standard base64 alphabet and
+  // padding since not every decoder tolerates a missing "=" tail.
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
+  return base64 + padding;
+};
 
 export async function getAttachmentBase64(accessToken: string, messageId: string, attachmentId: string): Promise<string> {
   const data = await gmailFetch(accessToken, `/messages/${messageId}/attachments/${attachmentId}`);
@@ -109,7 +115,12 @@ export async function getAttachmentBase64(accessToken: string, messageId: string
 
 async function findLabelId(accessToken: string): Promise<string | null> {
   const data = await gmailFetch(accessToken, '/labels');
-  const existing = (data.labels || []).find((l: { name: string }) => l.name === PROCESSED_LABEL_NAME);
+  // Gmail's own label-name uniqueness check is case-insensitive, so this
+  // lookup has to match that — otherwise a differently-cased leftover from
+  // an earlier attempt causes create to 409 while this "already exists"
+  // check fails to find it, and the self-heal below can't recover.
+  const target = PROCESSED_LABEL_NAME.toLowerCase();
+  const existing = (data.labels || []).find((l: { name: string }) => l.name.toLowerCase() === target);
   return existing?.id ?? null;
 }
 
