@@ -55,6 +55,10 @@ export async function listMessageIds(accessToken: string, query: string, maxResu
   return (data.messages || []).map((m: { id: string }) => m.id);
 }
 
+export async function getProfile(accessToken: string): Promise<{ emailAddress: string }> {
+  return gmailFetch(accessToken, '/profile');
+}
+
 interface GmailPart {
   filename?: string;
   mimeType?: string;

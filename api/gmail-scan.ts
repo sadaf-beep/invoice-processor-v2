@@ -5,7 +5,7 @@ import { extractInvoiceItems } from '../lib/extractInvoice.js';
 import {
   readGmailEnv, getAccessToken, listMessageIds, getMessage, getHeader,
   findPdfAttachments, getAttachmentBase64, ensureProcessedLabelId, markProcessed,
-  PROCESSED_LABEL_NAME,
+  getProfile, PROCESSED_LABEL_NAME,
 } from '../lib/gmailClient.js';
 
 // Manual scan can involve several sequential Claude calls (one per PDF) —
@@ -60,6 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const accessToken = await getAccessToken(gmailEnv);
+    const profile = await getProfile(accessToken);
     const labelId = await ensureProcessedLabelId(accessToken);
 
     const query = `subject:"Invoice Uploaded" has:attachment -label:"${PROCESSED_LABEL_NAME}" newer_than:${Math.max(1, daysBack)}d`;
@@ -102,7 +103,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    res.status(200).json({ items, messages });
+    res.status(200).json({ items, messages, debug: { account: profile.emailAddress, query, matchCount: messageIds.length } });
   } catch (error) {
     console.error('Gmail scan error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });

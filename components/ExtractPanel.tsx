@@ -47,6 +47,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
   const [isScanningGmail, setIsScanningGmail] = useState(false);
   const [gmailResults, setGmailResults] = useState<GmailScanMessageResult[] | null>(null);
   const [gmailError, setGmailError] = useState<string | null>(null);
+  const [gmailDebug, setGmailDebug] = useState<{ account: string; query: string; matchCount: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -165,9 +166,11 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     setIsScanningGmail(true);
     setGmailError(null);
     setGmailResults(null);
+    setGmailDebug(null);
     try {
-      const { items, messages } = await scanGmailForInvoices(activeSheet.columns, activeSheet.customInstructions, daysBack);
+      const { items, messages, debug } = await scanGmailForInvoices(activeSheet.columns, activeSheet.customInstructions, daysBack);
       setGmailResults(messages);
+      if (debug) setGmailDebug(debug);
       if (items.length > 0) {
         onDataReady(items, `Gmail scan (${messages.length} email${messages.length === 1 ? '' : 's'})`, outputMode, activeSheet.customInstructions);
       }
@@ -336,6 +339,14 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                       <div className="px-3 py-2.5 rounded-lg border border-[color:var(--color-line)] bg-[color:var(--color-danger-soft)] flex items-start gap-2">
                         <AlertCircle size={14} className="text-[color:var(--color-danger)] shrink-0 mt-0.5" />
                         <p className="text-[11px] text-[color:var(--color-danger)] leading-snug break-words">{gmailError}</p>
+                      </div>
+                    )}
+
+                    {gmailDebug && (
+                      <div className="px-3 py-2 rounded-lg border border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)] space-y-1">
+                        <p className="text-[10.5px] font-mono text-[color:var(--color-ink-muted)] break-all">Account: {gmailDebug.account}</p>
+                        <p className="text-[10.5px] font-mono text-[color:var(--color-ink-muted)] break-all">Query: {gmailDebug.query}</p>
+                        <p className="text-[10.5px] font-mono text-[color:var(--color-ink-muted)]">Matched: {gmailDebug.matchCount}</p>
                       </div>
                     )}
 
