@@ -41,9 +41,12 @@ runs them through the same Claude extraction as a normal upload, and appends the
 sheet. It's a manual, on-demand scan for now — the daily automated version is a later phase.
 
 **How dedup works:** there's no separate database. Processed messages get a Gmail label
-(`InvoiceIntel-Processed`) applied via the API itself, and the scan query excludes that label — so
-re-running the scan never reprocesses the same email twice, and a message only gets labeled after a
-successful extraction (so a failed one is retried on the next scan).
+(`InvoiceIntel-Processed`) applied via the API itself. The search query itself does *not* exclude that
+label — Gmail's search parser handles quoted label-name exclusions inconsistently (confirmed by
+reproducing it directly in Gmail's own search bar), so instead each matched message's own `labelIds` is
+checked in code after fetching it, and already-labeled ones are skipped there. A message only gets
+labeled after a successful extraction (or immediately if it turns out to have no PDF attached), so a
+failed extraction is retried on the next scan.
 
 ### One-time setup
 

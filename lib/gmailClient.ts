@@ -71,6 +71,7 @@ interface GmailPart {
 
 interface GmailMessage {
   id: string;
+  labelIds?: string[];
   payload: GmailPart & { headers?: { name: string; value: string }[] };
 }
 

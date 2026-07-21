@@ -5,7 +5,7 @@ import { extractInvoiceItems } from '../lib/extractInvoice.js';
 import {
   readGmailEnv, getAccessToken, listMessageIds, getMessage, getHeader,
   findPdfAttachments, getAttachmentBase64, ensureProcessedLabelId, markProcessed,
-  getProfile, PROCESSED_LABEL_NAME,
+  getProfile,
 } from '../lib/gmailClient.js';
 
 // Manual scan can involve several sequential Claude calls (one per PDF) —
@@ -63,7 +63,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const profile = await getProfile(accessToken);
     const labelId = await ensureProcessedLabelId(accessToken);
 
-    const query = `subject:"Invoice Uploaded" has:attachment -label:"${PROCESSED_LABEL_NAME}" newer_than:${Math.max(1, daysBack)}d`;
+    // Deliberately no "-label:" clause here — Gmail's search parser handles
+    // quoted label-name exclusions inconsistently (confirmed by reproducing
+    // it directly in Gmail's own search bar). Already-processed messages are
+    // filtered in code instead, from each message's own labelIds.
+    const query = `subject:"Invoice Uploaded" has:attachment newer_than:${Math.max(1, daysBack)}d`;
     const messageIds = await listMessageIds(accessToken, query, Math.min(25, Math.max(1, maxMessages)));
 
     const items: InvoiceItem[] = [];
@@ -73,6 +77,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const message = await getMessage(accessToken, id);
       const subject = getHeader(message, 'Subject') || '(no subject)';
       const from = getHeader(message, 'From') || '';
+
+      if (message.labelIds?.includes(labelId)) {
+        continue;
+      }
 
       const attachments = findPdfAttachments(message);
       if (attachments.length === 0) {
