@@ -3,7 +3,7 @@ import {
   Sparkles, Plus, X, Undo, Redo, Bold, Italic,
   AlignLeft, AlignCenter, AlignRight, Trash2,
   Eraser, BookOpen, FileSpreadsheet, FileText, Search, Sun, Moon, UploadCloud,
-  FileUp, FolderArchive, ArrowUpToLine,
+  FileUp, FolderArchive, ArrowUpToLine, History,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { downloadSOP } from './lib/sopGenerator';
@@ -11,6 +11,7 @@ import { ExtractPanel } from './components/ExtractPanel';
 import { Spreadsheet } from './components/Spreadsheet';
 import { EmptyState } from './components/EmptyState';
 import { Toaster, Toast, ToastKind } from './components/Toast';
+import { AutomationHistory } from './components/AutomationHistory';
 import { InvoiceItem, ColumnConfig, DEFAULT_COLUMNS, Sheet, DEFAULT_INSTRUCTIONS, CellStyle } from './types';
 import { generateExcel, generateCSV, generateAllZip, parseCSVFile } from './services/excelService';
 
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   ]);
   const [activeSheetId, setActiveSheetId] = useState<string>('1');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isAutomationHistoryOpen, setIsAutomationHistoryOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
 
   const [selectedCell, setSelectedCell] = useState<{ r: number; c: string } | null>(null);
@@ -425,6 +427,10 @@ const App: React.FC = () => {
                   {theme === 'dark' ? <Sun size={15} className="text-[color:var(--color-ink-muted)]" /> : <Moon size={15} className="text-[color:var(--color-ink-muted)]" />}
                   Switch to {theme === 'dark' ? 'light' : 'dark'} mode
                 </button>
+                <div className="h-px bg-[color:var(--color-line)] my-1 mx-2" />
+                <button onClick={() => setIsAutomationHistoryOpen(true)} className="menu-item">
+                  <History size={15} className="text-[color:var(--color-ink-muted)]" /> Automation history
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -616,6 +622,8 @@ const App: React.FC = () => {
         pendingFiles={pendingFiles}
         onPendingFilesConsumed={() => setPendingFiles(null)}
       />
+
+      <AutomationHistory isOpen={isAutomationHistoryOpen} onClose={() => setIsAutomationHistoryOpen(false)} />
 
       <Toaster toasts={toasts} onDismiss={dismissToast} />
     </div>

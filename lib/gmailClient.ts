@@ -1,3 +1,5 @@
+import nodemailer from 'nodemailer';
+
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 // No punctuation at all — a slash creates a nested label (search-parser
 // issues), and a hyphenated name has repeatedly 409'd on creation across many
@@ -163,6 +165,36 @@ export async function markProcessed(accessToken: string, messageId: string, labe
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ addLabelIds: [labelId] }),
+  });
+}
+
+export interface EmailAttachment {
+  filename: string;
+  content: string; // base64
+  contentType: string;
+}
+
+// Builds a proper RFC822/MIME message via nodemailer (streamTransport/buffer
+// mode — this never opens an SMTP connection, it's used purely for correct
+// multipart/attachment encoding, which is fiddly to hand-roll reliably) and
+// sends it through the Gmail API instead of SMTP.
+export async function sendEmail(
+  accessToken: string,
+  { to, subject, text, attachments }: { to: string; subject: string; text: string; attachments?: EmailAttachment[] }
+): Promise<void> {
+  const transport = nodemailer.createTransport({ streamTransport: true, buffer: true });
+  const info = await transport.sendMail({
+    to,
+    subject,
+    text,
+    attachments: attachments?.map((a) => ({ filename: a.filename, content: Buffer.from(a.content, 'base64'), contentType: a.contentType })),
+  });
+  const raw = (info.message as Buffer).toString('base64url');
+
+  await gmailFetch(accessToken, '/messages/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw }),
   });
 }
 

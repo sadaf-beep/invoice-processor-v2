@@ -19,7 +19,12 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
     response_type: 'code',
     access_type: 'offline',
     prompt: 'consent',
-    scope: 'https://www.googleapis.com/auth/gmail.modify',
+    scope: [
+      'https://www.googleapis.com/auth/gmail.modify',
+      'https://www.googleapis.com/auth/gmail.send',
+      // .file, not full Drive access — only reaches folders/files this app itself creates.
+      'https://www.googleapis.com/auth/drive.file',
+    ].join(' '),
   });
 
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
