@@ -5,7 +5,6 @@ import { readGmailEnv, getAccessToken, getProfile, sendEmail, EmailAttachment } 
 import { scanInvoiceEmails } from '../../lib/invoiceScan.js';
 import { ensureDateFolder, uploadFile } from '../../lib/driveClient.js';
 import { toCsvString } from '../../lib/csv.js';
-import { ensureSchema, insertProcessedInvoice } from '../../lib/db.js';
 
 export const config = {
   maxDuration: 60,
@@ -57,7 +56,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    await ensureSchema();
     const accessToken = await getAccessToken(gmailEnv);
     const profile = await getProfile(accessToken);
 
@@ -67,20 +65,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let processedCount = 0;
 
     for (const message of messages) {
-      if (message.status === 'skipped') {
-        await insertProcessedInvoice({
-          runDate, messageId: message.id, subject: message.subject, fromAddress: message.from,
-          fileName: message.fileName, itemCount: 0, status: 'skipped',
-        });
+      if (message.status === 'error') {
+        summaryLines.push(`✗ ${message.fileName}: ${message.error}`);
         continue;
       }
-
-      if (message.status === 'error') {
-        await insertProcessedInvoice({
-          runDate, messageId: message.id, subject: message.subject, fromAddress: message.from,
-          fileName: message.fileName, itemCount: 0, status: 'error', error: message.error,
-        });
-        summaryLines.push(`✗ ${message.fileName}: ${message.error}`);
+      if (message.status === 'skipped') {
         continue;
       }
 
@@ -88,30 +77,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         if (!folderId) folderId = await ensureDateFolder(accessToken, runDate);
 
-        let drivePdfLink: string | null = null;
         for (const attachment of message.attachments) {
-          const uploaded = await uploadFile(accessToken, {
+          await uploadFile(accessToken, {
             name: attachment.filename,
             mimeType: 'application/pdf',
             base64Data: attachment.base64Data,
             folderId,
           });
-          if (!drivePdfLink) drivePdfLink = uploaded.webViewLink;
         }
 
         const csvString = toCsvString(message.items, DEFAULT_COLUMNS);
         const csvName = `${message.fileName.replace(/\.pdf$/i, '')}.csv`;
-        const uploadedCsv = await uploadFile(accessToken, {
+        await uploadFile(accessToken, {
           name: csvName,
           mimeType: 'text/csv',
           base64Data: Buffer.from(csvString, 'utf-8').toString('base64'),
           folderId,
-        });
-
-        await insertProcessedInvoice({
-          runDate, messageId: message.id, subject: message.subject, fromAddress: message.from,
-          fileName: message.fileName, itemCount: message.itemCount, status: 'processed',
-          drivePdfLink, driveCsvLink: uploadedCsv.webViewLink,
         });
 
         emailAttachments.push({ filename: csvName, content: Buffer.from(csvString, 'utf-8').toString('base64'), contentType: 'text/csv' });
@@ -119,11 +100,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         processedCount++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        await insertProcessedInvoice({
-          runDate, messageId: message.id, subject: message.subject, fromAddress: message.from,
-          fileName: message.fileName, itemCount: message.itemCount, status: 'error', error: msg,
-        });
-        summaryLines.push(`✗ ${message.fileName} (archive/log step): ${msg}`);
+        summaryLines.push(`✗ ${message.fileName} (archive step): ${msg}`);
       }
     }
 
