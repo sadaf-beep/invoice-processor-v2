@@ -3,11 +3,12 @@ import {
   Sparkles, Plus, X, Undo, Redo, Bold, Italic,
   AlignLeft, AlignCenter, AlignRight, Trash2,
   Eraser, BookOpen, FileSpreadsheet, FileText, Search, Sun, Moon, UploadCloud,
-  FileUp, FolderArchive, ArrowUpToLine,
+  FileUp, FolderArchive, ArrowUpToLine, Zap,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { downloadSOP } from './lib/sopGenerator';
 import { ExtractPanel } from './components/ExtractPanel';
+import { AutomatePanel } from './components/AutomatePanel';
 import { Spreadsheet } from './components/Spreadsheet';
 import { EmptyState } from './components/EmptyState';
 import { Toaster, Toast, ToastKind } from './components/Toast';
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   ]);
   const [activeSheetId, setActiveSheetId] = useState<string>('1');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isAutomatePanelOpen, setIsAutomatePanelOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
 
   const [selectedCell, setSelectedCell] = useState<{ r: number; c: string } | null>(null);
@@ -425,6 +427,8 @@ const App: React.FC = () => {
                   {theme === 'dark' ? <Sun size={15} className="text-[color:var(--color-ink-muted)]" /> : <Moon size={15} className="text-[color:var(--color-ink-muted)]" />}
                   Switch to {theme === 'dark' ? 'light' : 'dark'} mode
                 </button>
+                <div className="h-px bg-[color:var(--color-line)] my-1 mx-2" />
+                <button onClick={() => setIsAutomatePanelOpen(true)} className="menu-item"><Zap size={15} className="text-[color:var(--color-ink-muted)]" /> Automate…</button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -462,6 +466,7 @@ const App: React.FC = () => {
           </div>
         </button>
 
+        <button onClick={() => setIsAutomatePanelOpen(true)} className="btn-secondary mr-2" title="Daily automation settings"><Zap size={14} /> Automate</button>
         <button onClick={() => setIsPanelOpen(true)} className="btn-primary"><Sparkles size={14} /> Extract Data</button>
       </header>
 
@@ -615,6 +620,12 @@ const App: React.FC = () => {
         activeSheet={activeSheet}
         pendingFiles={pendingFiles}
         onPendingFilesConsumed={() => setPendingFiles(null)}
+      />
+
+      <AutomatePanel
+        isOpen={isAutomatePanelOpen}
+        onClose={() => setIsAutomatePanelOpen(false)}
+        onToast={(kind, title, detail) => pushToast(kind, title, detail)}
       />
 
       <Toaster toasts={toasts} onDismiss={dismissToast} />

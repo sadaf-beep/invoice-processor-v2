@@ -84,8 +84,10 @@ fails with a clear "Gmail is not connected yet" error instead of a silent failur
 
 ## Daily automation
 
-A Vercel Cron job (`vercel.json`) hits `api/cron/daily-scan.ts` once a day at **00:00 UTC (6am
-Bangladesh time / GMT+6)**. Each run:
+A Vercel Cron job (`vercel.json`) hits `api/cron/daily-scan.ts` **every 15 minutes**. Each firing checks a
+schedule stored in Supabase and only actually runs the pipeline once it's past the time you've picked (and
+hasn't already run today) — this is what makes the run time adjustable from inside the app (**Automate**
+button in the header, or **View → Automate…**) without redeploying. When it does run:
 
 1. Scans for "Invoice Uploaded" emails from the last 3 days (a small buffer in case a run is missed —
    dedup labeling means nothing gets processed twice regardless).
@@ -94,14 +96,24 @@ Bangladesh time / GMT+6)**. Each run:
    nothing about your session persists between requests).
 3. Archives the source PDF(s) and a generated CSV to Google Drive, under a dated folder:
    `InvoiceIntel/<YYYY-MM-DD>/`.
-4. If anything was processed, emails you a summary with the CSV(s) attached.
+4. Emails you a summary with the CSV(s) attached.
 5. If a `SLACK_WEBHOOK_URL` is configured, also posts a Slack message with the same summary — which
    invoice(s) were processed, a link to each CSV, and a link to open that day's Drive folder. This step is
    optional and skipped entirely if the env var isn't set.
 
-There's no database and no in-app history view — email and the Drive archive are the record. (An earlier
-version of this also logged runs to Postgres for an in-app review panel; removed to keep setup to just
-the steps below.)
+The **Automate panel** also has a **"Run automation now"** button that fires the exact same pipeline
+immediately, ignoring the schedule — useful for testing or a live demo without waiting for the scheduled
+time. It's safe to click repeatedly: Gmail dedup labeling means already-processed invoices are just skipped,
+not reprocessed.
+
+There's still no in-app history view of past runs — email and the Drive archive are the record. Supabase's
+only job here is holding the one on/off + run-time setting; it isn't a database of processed invoices.
+
+> **Vercel plan note**: cron jobs that fire more often than once a day require a **Vercel Pro** plan — on
+> the free Hobby plan, Vercel caps cron invocations to once daily regardless of the schedule in
+> `vercel.json`. If you're on Hobby, the adjustable time may not take effect at 15-minute granularity, but
+> **"Run automation now" always works** regardless of plan, since it's a normal API call, not a cron
+> invocation.
 
 ### Setup
 
@@ -114,7 +126,31 @@ the steps below.)
    automatically sends this as a bearer token when it invokes the cron job, which is how
    `api/cron/daily-scan.ts` verifies the request actually came from Vercel and not an outsider hitting the
    URL directly.
-3. **Slack notification (optional)**: if you'd also like a Slack message alongside the email, create an
+3. **Supabase (for the adjustable schedule)**:
+   - Create a new project at [supabase.com](https://supabase.com) (the free tier is enough — this is a
+     single settings row, not a real workload).
+   - In the project's **SQL Editor**, run:
+     ```sql
+     create table if not exists automation_settings (
+       id int primary key default 1,
+       enabled boolean not null default false,
+       run_hour smallint not null default 6,
+       run_minute smallint not null default 0,
+       timezone text not null default 'Asia/Dhaka',
+       last_run_date date,
+       updated_at timestamptz not null default now()
+     );
+
+     insert into automation_settings (id) values (1)
+     on conflict (id) do nothing;
+     ```
+   - In the project's **Settings → API**, copy the **Project URL** and the **`service_role`** secret key
+     (not the `anon` key — the service role key is what lets the server read/write this table).
+   - Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as Vercel environment variables (Production). The
+     service role key is a secret — it's only ever read server-side, never sent to the browser.
+   - If Supabase isn't configured, the cron job just no-ops on every 15-minute tick (rather than guessing a
+     schedule) — automation stays off until it's set up, and "Run automation now" still works regardless.
+4. **Slack notification (optional)**: if you'd also like a Slack message alongside the email, create an
    [Incoming Webhook](https://api.slack.com/messaging/webhooks) — in Slack, go to
    `api.slack.com/apps` → **Create New App** → **From scratch** → name it and pick your workspace → under
    **Incoming Webhooks**, toggle it on → **Add New Webhook to Workspace** → choose the channel to post to →
@@ -122,14 +158,11 @@ the steps below.)
    This needs no bot, no OAuth flow, and no extra scopes — it's just a URL the cron job posts a JSON message
    to. Skip this step entirely if you don't want Slack notifications; email + Drive archival work the same
    either way.
-4. Redeploy after setting all of the above.
-5. **Test it manually** before waiting for the real 6am run — from your own machine (not from inside the
-   app):
-   ```
-   curl -H "Authorization: Bearer <your CRON_SECRET>" https://<your-vercel-domain>/api/cron/daily-scan
-   ```
-   Check the response, your Drive `InvoiceIntel` folder, your inbox, and (if configured) Slack to confirm
-   everything worked.
+5. Redeploy after setting all of the above.
+6. In the app, open **Automate** (header button, or View → Automate…), toggle **Process emails
+   automatically** on, and set your preferred run time. Click **Run automation now** to test immediately —
+   check the response toast, your Drive `InvoiceIntel` folder, your inbox, and (if configured) Slack to
+   confirm everything worked.
 
 ## What changed vs the original app
 
