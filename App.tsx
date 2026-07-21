@@ -212,13 +212,19 @@ const App: React.FC = () => {
     updateActiveSheet({ styles: newStyles }, false);
   };
 
+  // Sheet name (and, since exports are named after the sheet, the exported
+  // CSV/Excel filename too) should match the source PDF's filename exactly —
+  // no truncation, just the extension stripped since it isn't a file on disk.
+  const sheetNameFromFileName = (fileName: string): string => fileName.replace(/\.(pdf|jpe?g|png)$/i, '');
+
   const handleDataReady = (items: InvoiceItem[], fileName: string, mode: 'single' | 'multiple', instructionsUsed: string) => {
+    const sheetName = sheetNameFromFileName(fileName);
     setSheets((prevSheets) => {
       if (mode === 'single') {
         return prevSheets.map((s) => {
           if (s.id === activeSheetId) {
             const isDefaultName = /^Sheet\d+$/.test(s.name);
-            return { ...s, data: [...s.data, ...items], name: isDefaultName ? fileName.substring(0, 20) : s.name };
+            return { ...s, data: [...s.data, ...items], name: isDefaultName ? sheetName : s.name };
           }
           return s;
         });
@@ -226,7 +232,7 @@ const App: React.FC = () => {
       const nextId = (Math.max(...prevSheets.map((s) => parseInt(s.id))) + 1).toString();
       const newSheet: Sheet = {
         id: nextId,
-        name: fileName.substring(0, 20),
+        name: sheetName,
         data: items,
         columns: [...activeSheet.columns],
         customInstructions: instructionsUsed,

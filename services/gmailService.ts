@@ -7,6 +7,7 @@ export interface GmailScanMessageResult {
   status: 'processed' | 'skipped' | 'error';
   itemCount: number;
   items: InvoiceItem[];
+  fileName: string;
   error?: string;
 }
 

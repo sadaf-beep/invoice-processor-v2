@@ -34,14 +34,6 @@ const cleanErr = (e: unknown): string => {
   return s || 'Something went wrong.';
 };
 
-// Every scanned email's subject starts with the same required "Invoice
-// Uploaded" phrase, so the sheet-name truncation elsewhere (first 20 chars)
-// would make every tab look identical. Strip that fixed prefix so whatever's
-// actually distinctive (vendor, date) lands within the truncation window.
-const sheetNameFromSubject = (subject: string, messageId: string): string => {
-  const stripped = subject.replace(/^invoice uploaded\s*[|:\-–—]?\s*/i, '').trim();
-  return stripped || `Gmail ${messageId.slice(-6)}`;
-};
 
 export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onDataReady, onConfigChange, onError, activeSheet, pendingFiles, onPendingFilesConsumed }) => {
   const [files, setFiles] = useState<File[]>([]);
@@ -185,7 +177,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
       // of dumping every email's rows into one sheet.
       messages
         .filter((m) => m.status === 'processed' && m.items.length > 0)
-        .forEach((m) => onDataReady(m.items, sheetNameFromSubject(m.subject, m.id), outputMode, activeSheet.customInstructions));
+        .forEach((m) => onDataReady(m.items, m.fileName, outputMode, activeSheet.customInstructions));
     } catch (error) {
       const msg = cleanErr(error);
       setGmailError(msg);

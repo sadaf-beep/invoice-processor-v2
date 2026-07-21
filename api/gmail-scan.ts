@@ -28,6 +28,9 @@ interface MessageResult {
   status: 'processed' | 'skipped' | 'error';
   itemCount: number;
   items: InvoiceItem[];
+  // The PDF attachment's own filename — sheets/exports are named after this,
+  // not the email subject, so the source PDF and its sheet/CSV match exactly.
+  fileName: string;
   error?: string;
 }
 
@@ -97,9 +100,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const attachments = findPdfAttachments(message);
       if (attachments.length === 0) {
         if (labelId) await markProcessed(accessToken, id, labelId);
-        messages.push({ id, subject, from, status: 'skipped', itemCount: 0, items: [] });
+        messages.push({ id, subject, from, status: 'skipped', itemCount: 0, items: [], fileName: subject });
         continue;
       }
+
+      const fileName = attachments[0].filename || subject;
 
       try {
         const messageItems: InvoiceItem[] = [];
@@ -115,10 +120,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           messageItems.push(...extracted);
         }
         if (labelId) await markProcessed(accessToken, id, labelId);
-        messages.push({ id, subject, from, status: 'processed', itemCount: messageItems.length, items: messageItems });
+        messages.push({ id, subject, from, status: 'processed', itemCount: messageItems.length, items: messageItems, fileName });
       } catch (err) {
         // Left unlabeled on failure so the next scan retries it.
-        messages.push({ id, subject, from, status: 'error', itemCount: 0, items: [], error: err instanceof Error ? err.message : String(err) });
+        messages.push({ id, subject, from, status: 'error', itemCount: 0, items: [], fileName, error: err instanceof Error ? err.message : String(err) });
       }
     }
 
