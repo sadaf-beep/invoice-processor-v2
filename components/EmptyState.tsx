@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Lock } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ColumnConfig } from '../types';
 
@@ -49,7 +49,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onExtract, onAddRow, col
 
       <div className="mt-9">
         <div className="flex items-center justify-center gap-1.5 mb-3">
-          <span className="lock-tag"><Lock size={11} /> Standard columns — filled automatically</span>
+          <span className="lock-tag">Starting columns — add or rename any of them later</span>
         </div>
         <div className="flex flex-wrap gap-1.5 justify-center">
           {columns.map((col) => (

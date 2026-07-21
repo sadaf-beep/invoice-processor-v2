@@ -1,16 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { InvoiceItem, ColumnConfig, CellStyle } from '../types';
-import { Plus } from 'lucide-react';
+import { Plus, ArrowUp, ArrowDown, X } from 'lucide-react';
 
 interface SpreadsheetProps {
   data: InvoiceItem[];
   columns: ColumnConfig[];
   styles: Record<string, CellStyle>;
-  /** When provided, only these original row indices are rendered (search/type-filter active). */
+  /** When provided, exactly these original row indices are rendered, in this order (search/type-filter and/or sort active). */
   visibleIndices?: number[];
+  /** True only when a real search/type filter is narrowing rows — hides "Add row" and shows the empty-filter message. Sorting alone doesn't set this. */
+  isFiltered?: boolean;
+  sortConfig?: { columnId: string; direction: 'asc' | 'desc' } | null;
+  onSortColumn?: (columnId: string) => void;
   onCellChange: (rowIndex: number, columnId: string, value: string) => void;
   onBatchChange?: (updates: { r: number; c: string; v: string }[]) => void;
   onSelectionChange: (rowIndex: number | null, colId: string | null) => void;
+  onAddColumn?: () => void;
+  onRenameColumn?: (columnId: string, newLabel: string) => void;
+  onDeleteColumn?: (columnId: string) => void;
+  onResizeColumn?: (columnId: string, width: number) => void;
 }
 
 interface Coordinate {
@@ -22,6 +30,10 @@ interface SelectionRange {
   start: Coordinate;
   end: Coordinate;
 }
+
+const DEFAULT_COL_WIDTH = 184;
+const ROW_GUTTER_WIDTH = 44;
+const MIN_COL_WIDTH = 80;
 
 const columnLetter = (index: number): string => {
   let n = index;
@@ -38,19 +50,31 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
   columns,
   styles,
   visibleIndices,
+  isFiltered,
+  sortConfig,
+  onSortColumn,
   onCellChange,
   onBatchChange,
   onSelectionChange,
+  onAddColumn,
+  onRenameColumn,
+  onDeleteColumn,
+  onResizeColumn,
 }) => {
   const [selectionRange, setSelectionRange] = useState<SelectionRange | null>(null);
   const [activeCell, setActiveCell] = useState<Coordinate | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [renamingColId, setRenamingColId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [resizing, setResizing] = useState<{ colId: string; startX: number; startWidth: number; liveWidth: number } | null>(null);
 
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  const isFiltered = visibleIndices !== undefined;
+  const hasCustomOrder = visibleIndices !== undefined;
   const rowCount = Math.max(data.length, 50);
-  const displayIndices = isFiltered ? visibleIndices! : Array.from({ length: rowCount }, (_, i) => i);
+  const displayIndices = hasCustomOrder ? visibleIndices! : Array.from({ length: rowCount }, (_, i) => i);
+
+  const colWidth = (col: ColumnConfig) => (resizing?.colId === col.id ? resizing.liveWidth : col.width ?? DEFAULT_COL_WIDTH);
 
   const handleMouseDown = (rowIndex: number, colIndex: number, e: React.MouseEvent) => {
     if (e.shiftKey && selectionRange) {
@@ -77,6 +101,46 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
     window.addEventListener('mouseup', handleWindowMouseUp);
     return () => window.removeEventListener('mouseup', handleWindowMouseUp);
   }, [isDragging]);
+
+  // Column resize drag
+  useEffect(() => {
+    if (!resizing) return;
+    const handleMove = (e: MouseEvent) => {
+      setResizing((prev) => (prev ? { ...prev, liveWidth: Math.max(MIN_COL_WIDTH, prev.startWidth + (e.clientX - prev.startX)) } : prev));
+    };
+    const handleUp = () => {
+      setResizing((prev) => {
+        if (prev) onResizeColumn?.(prev.colId, prev.liveWidth);
+        return null;
+      });
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [resizing, onResizeColumn]);
+
+  const startResize = (col: ColumnConfig, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizing({ colId: col.id, startX: e.clientX, startWidth: col.width ?? DEFAULT_COL_WIDTH, liveWidth: col.width ?? DEFAULT_COL_WIDTH });
+  };
+
+  const startRename = (col: ColumnConfig, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingColId(col.id);
+    setRenameValue(col.label);
+  };
+
+  const commitRename = () => {
+    if (renamingColId) {
+      const trimmed = renameValue.trim();
+      if (trimmed) onRenameColumn?.(renamingColId, trimmed);
+    }
+    setRenamingColId(null);
+  };
 
   const handleRowHeaderClick = (rowIndex: number) => {
     const start = { r: rowIndex, cIdx: 0 };
@@ -228,26 +292,89 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
         <div className="px-3 text-[12.5px] text-[color:var(--color-ink)] truncate flex-1">{activeCellValue}</div>
       </div>
 
-      <div className="flex-1 overflow-auto no-scrollbar">
-        <table className="w-full border-collapse text-[13px] table-fixed">
+      <div className="flex-1 overflow-auto">
+        <table className="border-collapse text-[13px] table-fixed" style={{ width: ROW_GUTTER_WIDTH + columns.reduce((sum, c) => sum + colWidth(c), 0) + 40 }}>
           <thead className="sticky top-0 z-20">
             <tr className="border-b border-[color:var(--color-line-strong)]">
-              <th className="w-[44px] p-0 text-center font-medium text-[10px] text-[color:var(--color-ink-muted)] border-r border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)]"></th>
-              {columns.map((col, index) => (
-                <th
-                  key={col.id}
-                  className="px-3 pt-1.5 pb-2 text-left w-[184px] select-none border-r border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)]"
-                >
-                  <div className="text-[9px] font-semibold text-[color:var(--color-ink-muted)] mb-0.5">{columnLetter(index)}</div>
-                  <span className="font-semibold text-[color:var(--color-ink)] text-[12.5px] truncate block" title={col.label}>{col.label}</span>
+              <th
+                className="p-0 text-center font-medium text-[10px] text-[color:var(--color-ink-muted)] border-r border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)] sticky left-0 z-30"
+                style={{ width: ROW_GUTTER_WIDTH }}
+              ></th>
+              {columns.map((col, index) => {
+                const isFrozen = index === 0;
+                const sortActive = sortConfig?.columnId === col.id;
+                return (
+                  <th
+                    key={col.id}
+                    className={`group/th relative px-3 pt-1.5 pb-2 text-left select-none border-r border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)]
+                      ${isFrozen ? 'sticky z-30' : ''}`}
+                    style={{ width: colWidth(col), ...(isFrozen ? { left: ROW_GUTTER_WIDTH } : {}) }}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[9px] font-semibold text-[color:var(--color-ink-muted)] mb-0.5">{columnLetter(index)}</div>
+                        {renamingColId === col.id ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onBlur={commitRename}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitRename();
+                              if (e.key === 'Escape') setRenamingColId(null);
+                            }}
+                            className="w-full font-semibold text-[color:var(--color-ink)] text-[12.5px] bg-[color:var(--color-surface)] border border-[color:var(--color-brand)] rounded px-1 outline-none"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => onSortColumn?.(col.id)}
+                            onDoubleClick={(e) => startRename(col, e)}
+                            className="font-semibold text-[color:var(--color-ink)] text-[12.5px] truncate flex items-center gap-1 w-full text-left hover:text-[color:var(--color-brand)] transition-colors"
+                            title={`${col.label} — click to sort, double-click to rename`}
+                          >
+                            <span className="truncate">{col.label}</span>
+                            {sortActive && (sortConfig!.direction === 'asc' ? <ArrowUp size={11} className="shrink-0" /> : <ArrowDown size={11} className="shrink-0" />)}
+                          </button>
+                        )}
+                      </div>
+                      {onDeleteColumn && columns.length > 1 && renamingColId !== col.id && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDeleteColumn(col.id); }}
+                          className="opacity-0 group-hover/th:opacity-100 shrink-0 text-[color:var(--color-ink-muted)] hover:text-[color:var(--color-danger)] transition-opacity"
+                          title="Delete column"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                    {onResizeColumn && (
+                      <div
+                        onMouseDown={(e) => startResize(col, e)}
+                        className="absolute top-0 right-0 h-full w-[6px] cursor-col-resize hover:bg-[color:var(--color-brand)]/40 z-10"
+                      />
+                    )}
+                  </th>
+                );
+              })}
+              {onAddColumn && (
+                <th className="p-0 bg-[color:var(--color-surface-sunken)]" style={{ width: 40 }}>
+                  <button
+                    onClick={onAddColumn}
+                    className="w-full h-full flex items-center justify-center text-[color:var(--color-ink-muted)] hover:text-[color:var(--color-brand)] hover:bg-[color:var(--color-brand-soft)] transition-colors"
+                    title="Add column"
+                  >
+                    <Plus size={14} />
+                  </button>
                 </th>
-              ))}
+              )}
             </tr>
           </thead>
           <tbody>
             {displayIndices.map((rowIndex) => {
               const row = data[rowIndex] || {};
-              const isEmpty = !isFiltered && rowIndex > lastNonEmptyRowIdx;
+              const isEmpty = !hasCustomOrder && rowIndex > lastNonEmptyRowIdx;
               if (isEmpty && rowIndex > lastNonEmptyRowIdx + 15) return null;
 
               const rowSelected =
@@ -258,8 +385,9 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
               return (
                 <tr key={rowIndex} className={`h-[38px] group/row transition-colors ${rowSelected ? '' : 'hover:bg-[color:var(--color-surface-sunken)]/60'} ${!isEmpty ? 'border-b border-[color:var(--color-line)]' : ''}`}>
                   <td
-                    className={`text-center text-[11px] font-medium transition-colors w-[44px] select-none sticky left-0 z-10 border-r border-[color:var(--color-line)]
+                    className={`text-center text-[11px] font-medium transition-colors select-none sticky left-0 z-20 border-r border-[color:var(--color-line)]
                       ${rowSelected ? 'text-[color:var(--color-brand)] font-bold bg-[color:var(--color-brand-soft)]' : 'text-[color:var(--color-ink-muted)] bg-[color:var(--color-surface-sunken)]'}`}
+                    style={{ width: ROW_GUTTER_WIDTH }}
                     onClick={() => handleRowHeaderClick(rowIndex)}
                   >
                     {!isEmpty || rowIndex === lastNonEmptyRowIdx + 1 ? rowIndex + 1 : ''}
@@ -280,6 +408,7 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
 
                     const isSelected = isInRange(rowIndex, colIndex);
                     const isActive = activeCell?.r === rowIndex && activeCell?.cIdx === colIndex;
+                    const isFrozen = colIndex === 0;
 
                     let displayValue = cellValue;
                     if (isPrice && cellValue && !isNaN(parseFloat(cellValue))) {
@@ -300,13 +429,17 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
                       }
                     };
 
+                    const frozenBg = isActive ? '' : isSelected ? 'bg-[color:var(--color-brand-soft)]' : 'bg-[color:var(--color-surface)]';
+
                     return (
                       <td
                         key={colIndex}
                         className={`p-0 relative transition-all duration-75 border-r border-[color:var(--color-line)]
+                          ${isFrozen ? `sticky z-10 ${frozenBg}` : ''}
                           ${isActive ? 'z-30 ring-2 ring-[color:var(--color-brand)] ring-inset bg-[color:var(--color-surface)]' : ''}
-                          ${isSelected && !isActive ? 'bg-[color:var(--color-brand-soft)]' : ''}
+                          ${isSelected && !isActive && !isFrozen ? 'bg-[color:var(--color-brand-soft)]' : ''}
                         `}
+                        style={{ width: colWidth(col), ...(isFrozen ? { left: ROW_GUTTER_WIDTH } : {}) }}
                         onMouseDown={(e) => handleMouseDown(rowIndex, colIndex, e)}
                         onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
                       >
@@ -338,13 +471,14 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({
                       </td>
                     );
                   })}
+                  {onAddColumn && <td className="bg-[color:var(--color-surface)]" style={{ width: 40 }} />}
                 </tr>
               );
             })}
 
             {!isFiltered && (
               <tr>
-                <td colSpan={columns.length + 1} className="py-6">
+                <td colSpan={columns.length + (onAddColumn ? 2 : 1)} className="py-6">
                   <button
                     onClick={() => onCellChange(lastNonEmptyRowIdx + 1, columns[0].label, '')}
                     className="w-full text-center text-[color:var(--color-ink-muted)] text-[12px] font-medium hover:text-[color:var(--color-brand)] transition-colors flex items-center justify-center gap-1.5"

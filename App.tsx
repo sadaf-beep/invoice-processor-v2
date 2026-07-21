@@ -58,6 +58,7 @@ const App: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [dragDepth, setDragDepth] = useState(0);
+  const [sortConfig, setSortConfig] = useState<{ columnId: string; direction: 'asc' | 'desc' } | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -87,18 +88,48 @@ const App: React.FC = () => {
 
   const hasActiveFilter = typeFilter !== 'All' || searchQuery.trim() !== '';
   const visibleIndices = useMemo(() => {
-    if (!hasActiveFilter) return undefined;
-    const q = searchQuery.trim().toLowerCase();
-    const matchType = TYPE_FILTERS.find((f) => f.key === typeFilter)?.match;
-    return activeSheet.data
-      .map((_, i) => i)
-      .filter((i) => {
+    if (!hasActiveFilter && !sortConfig) return undefined;
+
+    let indices = activeSheet.data.map((_, i) => i);
+
+    if (hasActiveFilter) {
+      const q = searchQuery.trim().toLowerCase();
+      const matchType = TYPE_FILTERS.find((f) => f.key === typeFilter)?.match;
+      indices = indices.filter((i) => {
         const row = activeSheet.data[i];
         const typeOk = !matchType || String(row['Item Type'] || '').toUpperCase() === matchType;
         const searchOk = !q || Object.values(row).some((v) => String(v ?? '').toLowerCase().includes(q));
         return typeOk && searchOk;
       });
-  }, [activeSheet.data, typeFilter, searchQuery, hasActiveFilter]);
+    }
+
+    if (sortConfig) {
+      const col = activeSheet.columns.find((c) => c.id === sortConfig.columnId);
+      if (col) {
+        const dir = sortConfig.direction === 'asc' ? 1 : -1;
+        indices = [...indices].sort((a, b) => {
+          const va = activeSheet.data[a]?.[col.label];
+          const vb = activeSheet.data[b]?.[col.label];
+          if (col.type === 'number') {
+            const na = parseFloat(String(va ?? '')) || 0;
+            const nb = parseFloat(String(vb ?? '')) || 0;
+            return (na - nb) * dir;
+          }
+          return String(va ?? '').localeCompare(String(vb ?? ''), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+        });
+      }
+    }
+
+    return indices;
+  }, [activeSheet.data, activeSheet.columns, typeFilter, searchQuery, hasActiveFilter, sortConfig]);
+
+  const handleSortColumn = (columnId: string) => {
+    setSortConfig((prev) => {
+      if (!prev || prev.columnId !== columnId) return { columnId, direction: 'asc' };
+      if (prev.direction === 'asc') return { columnId, direction: 'desc' };
+      return null;
+    });
+  };
 
   const pushToast = (kind: ToastKind, title: string, detail?: string) => {
     setToasts((prev) => [...prev, { id: `t${++toastSeq}`, kind, title, detail }]);
@@ -162,6 +193,52 @@ const App: React.FC = () => {
     newData.splice(at, 0, {});
     updateActiveSheet({ data: newData });
     setSelectedRowIndex(at);
+  };
+
+  const handleAddColumn = () => {
+    const base = 'New Column';
+    const existingIds = new Set(activeSheet.columns.map((c) => c.id.toLowerCase()));
+    let name = base;
+    let n = 2;
+    while (existingIds.has(name.toLowerCase())) {
+      name = `${base} ${n}`;
+      n++;
+    }
+    const newCol: ColumnConfig = { id: name, label: name, type: 'string', required: false };
+    updateActiveSheet({ columns: [...activeSheet.columns, newCol] });
+  };
+
+  const handleRenameColumn = (columnId: string, newLabel: string) => {
+    const col = activeSheet.columns.find((c) => c.id === columnId);
+    if (!col || col.label === newLabel) return;
+
+    // Data and per-cell styles are keyed by the column's label/id, so a
+    // rename has to migrate both — otherwise existing values and formatting
+    // for that column silently vanish under the old key.
+    const newData = activeSheet.data.map((row) => {
+      if (!(col.label in row)) return row;
+      const { [col.label]: value, ...rest } = row;
+      return { ...rest, [newLabel]: value };
+    });
+
+    const newStyles: Record<string, CellStyle> = {};
+    Object.entries(activeSheet.styles).forEach(([key, style]) => {
+      const match = key.match(/^(\d+)-(.+)$/);
+      newStyles[match && match[2] === col.id ? `${match[1]}-${newLabel}` : key] = style;
+    });
+
+    const newColumns = activeSheet.columns.map((c) => (c.id === columnId ? { ...c, id: newLabel, label: newLabel } : c));
+    updateActiveSheet({ columns: newColumns, data: newData, styles: newStyles });
+  };
+
+  const handleDeleteColumn = (columnId: string) => {
+    if (activeSheet.columns.length <= 1) return;
+    if (!confirm('Delete this column? Its data will be removed from every row.')) return;
+    updateActiveSheet({ columns: activeSheet.columns.filter((c) => c.id !== columnId) });
+  };
+
+  const handleResizeColumn = (columnId: string, width: number) => {
+    updateActiveSheet({ columns: activeSheet.columns.map((c) => (c.id === columnId ? { ...c, width } : c)) }, false);
   };
 
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -433,6 +510,9 @@ const App: React.FC = () => {
             columns={activeSheet.columns}
             styles={activeSheet.styles}
             visibleIndices={visibleIndices}
+            isFiltered={hasActiveFilter}
+            sortConfig={sortConfig}
+            onSortColumn={handleSortColumn}
             onCellChange={(r, c, v) => {
               const newData = [...activeSheet.data];
               if (!newData[r]) newData[r] = {};
@@ -444,6 +524,10 @@ const App: React.FC = () => {
               setSelectedRowIndex(r);
               setSelectedCell(c && r !== null ? { r, c } : null);
             }}
+            onAddColumn={handleAddColumn}
+            onRenameColumn={handleRenameColumn}
+            onDeleteColumn={handleDeleteColumn}
+            onResizeColumn={handleResizeColumn}
           />
         )}
 
@@ -465,7 +549,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Sheet tabs */}
-      <div className="h-[38px] bg-[color:var(--color-surface)] border-t border-[color:var(--color-line)] flex items-center px-2 overflow-x-auto no-scrollbar shrink-0 select-none">
+      <div className="h-[38px] bg-[color:var(--color-surface)] border-t border-[color:var(--color-line)] flex items-center px-2 overflow-x-auto shrink-0 select-none">
         <button
           onClick={() => {
             const newId = Date.now().toString();

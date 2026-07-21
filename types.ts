@@ -10,6 +10,7 @@ export interface ColumnConfig {
   label: string;
   type: 'string' | 'number' | 'date';
   required: boolean;
+  width?: number;
 }
 
 export interface CellStyle {

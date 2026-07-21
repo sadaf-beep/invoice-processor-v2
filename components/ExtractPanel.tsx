@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  X, UploadCloud, FileText, Bot, Lock, RotateCcw,
+  X, UploadCloud, FileText, Bot, RotateCcw,
   CheckCircle2, AlertCircle, Loader2, Sparkles, Mail, MailX,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -409,17 +409,17 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                 </div>
               </section>
 
-              {/* Columns — fixed schema, read-only */}
+              {/* Columns — editable directly in the grid (add/rename/delete on the headers) */}
               <section className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <h3 className={sectionLabel}>Columns extracted</h3>
-                  <span className="lock-tag"><Lock size={11} /> Fixed schema</span>
-                </div>
+                <h3 className={sectionLabel}>Columns extracted</h3>
                 <div className="flex flex-wrap gap-1.5">
                   {activeSheet.columns.map((col) => (
                     <span key={col.id} className="rchip">{col.label}</span>
                   ))}
                 </div>
+                <p className="text-[11px] text-[color:var(--color-ink-muted)]">
+                  Add or rename columns directly on the sheet's headers — use the note below to tell Claude what should go in a new one.
+                </p>
               </section>
 
               {/* Extra instructions */}
