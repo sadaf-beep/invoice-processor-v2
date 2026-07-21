@@ -27,6 +27,7 @@ interface MessageResult {
   from: string;
   status: 'processed' | 'skipped' | 'error';
   itemCount: number;
+  items: InvoiceItem[];
   error?: string;
 }
 
@@ -82,7 +83,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const query = `subject:"Invoice Uploaded" has:attachment newer_than:${Math.max(1, daysBack)}d`;
     const messageIds = await listMessageIds(accessToken, query, Math.min(25, Math.max(1, maxMessages)));
 
-    const items: InvoiceItem[] = [];
     const messages: MessageResult[] = [];
 
     for (const id of messageIds) {
@@ -97,12 +97,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const attachments = findPdfAttachments(message);
       if (attachments.length === 0) {
         if (labelId) await markProcessed(accessToken, id, labelId);
-        messages.push({ id, subject, from, status: 'skipped', itemCount: 0 });
+        messages.push({ id, subject, from, status: 'skipped', itemCount: 0, items: [] });
         continue;
       }
 
       try {
-        let messageItemCount = 0;
+        const messageItems: InvoiceItem[] = [];
         for (const attachment of attachments) {
           const base64Data = await getAttachmentBase64(accessToken, id, attachment.attachmentId);
           const extracted = await extractInvoiceItems(client, {
@@ -112,18 +112,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             customInstructions,
             pageRange: 'All',
           });
-          items.push(...extracted);
-          messageItemCount += extracted.length;
+          messageItems.push(...extracted);
         }
         if (labelId) await markProcessed(accessToken, id, labelId);
-        messages.push({ id, subject, from, status: 'processed', itemCount: messageItemCount });
+        messages.push({ id, subject, from, status: 'processed', itemCount: messageItems.length, items: messageItems });
       } catch (err) {
         // Left unlabeled on failure so the next scan retries it.
-        messages.push({ id, subject, from, status: 'error', itemCount: 0, error: err instanceof Error ? err.message : String(err) });
+        messages.push({ id, subject, from, status: 'error', itemCount: 0, items: [], error: err instanceof Error ? err.message : String(err) });
       }
     }
 
-    res.status(200).json({ items, messages, debug: { account: profile.emailAddress, query, matchCount: messageIds.length, labelError } });
+    res.status(200).json({ messages, debug: { account: profile.emailAddress, query, matchCount: messageIds.length, labelError } });
   } catch (error) {
     console.error('Gmail scan error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });

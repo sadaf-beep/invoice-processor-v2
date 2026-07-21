@@ -6,11 +6,11 @@ export interface GmailScanMessageResult {
   from: string;
   status: 'processed' | 'skipped' | 'error';
   itemCount: number;
+  items: InvoiceItem[];
   error?: string;
 }
 
 export interface GmailScanResult {
-  items: InvoiceItem[];
   messages: GmailScanMessageResult[];
   debug?: { account: string; query: string; matchCount: number; labelError?: string | null };
 }

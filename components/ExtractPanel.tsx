@@ -34,6 +34,15 @@ const cleanErr = (e: unknown): string => {
   return s || 'Something went wrong.';
 };
 
+// Every scanned email's subject starts with the same required "Invoice
+// Uploaded" phrase, so the sheet-name truncation elsewhere (first 20 chars)
+// would make every tab look identical. Strip that fixed prefix so whatever's
+// actually distinctive (vendor, date) lands within the truncation window.
+const sheetNameFromSubject = (subject: string, messageId: string): string => {
+  const stripped = subject.replace(/^invoice uploaded\s*[|:\-–—]?\s*/i, '').trim();
+  return stripped || `Gmail ${messageId.slice(-6)}`;
+};
+
 export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onDataReady, onConfigChange, onError, activeSheet, pendingFiles, onPendingFilesConsumed }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [pageRange, setPageRange] = useState('All');
@@ -168,12 +177,15 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     setGmailResults(null);
     setGmailDebug(null);
     try {
-      const { items, messages, debug } = await scanGmailForInvoices(activeSheet.columns, activeSheet.customInstructions, daysBack);
+      const { messages, debug } = await scanGmailForInvoices(activeSheet.columns, activeSheet.customInstructions, daysBack);
       setGmailResults(messages);
       if (debug) setGmailDebug(debug);
-      if (items.length > 0) {
-        onDataReady(items, `Gmail scan (${messages.length} email${messages.length === 1 ? '' : 's'})`, outputMode, activeSheet.customInstructions);
-      }
+      // One onDataReady call per email — not a single combined call — so
+      // "New sheet per file" actually produces one sheet per invoice instead
+      // of dumping every email's rows into one sheet.
+      messages
+        .filter((m) => m.status === 'processed' && m.items.length > 0)
+        .forEach((m) => onDataReady(m.items, sheetNameFromSubject(m.subject, m.id), outputMode, activeSheet.customInstructions));
     } catch (error) {
       const msg = cleanErr(error);
       setGmailError(msg);
