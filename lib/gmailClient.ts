@@ -1,8 +1,10 @@
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
-// Flat name (no "/") — a slash creates a nested label, and Gmail's search
-// parser handles quoted nested-label paths inconsistently, silently
-// zeroing out results instead of treating it as a literal no-op exclusion.
-const PROCESSED_LABEL_NAME = 'InvoiceIntel-Processed';
+// No punctuation at all — a slash creates a nested label (search-parser
+// issues), and a hyphenated name has repeatedly 409'd on creation across many
+// separate requests even when Gmail's own Labels settings page showed no
+// such label existing, which rules out a one-off race. Simplest name that
+// hasn't been tried yet.
+const PROCESSED_LABEL_NAME = 'InvoiceIntelProcessed';
 
 export interface GmailEnv {
   clientId: string;
@@ -125,6 +127,8 @@ async function findLabelId(accessToken: string): Promise<string | null> {
   return existing?.id ?? null;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function ensureProcessedLabelId(accessToken: string): Promise<string> {
   const existingId = await findLabelId(accessToken);
   if (existingId) return existingId;
@@ -142,9 +146,14 @@ export async function ensureProcessedLabelId(accessToken: string): Promise<strin
     return created.id;
   } catch (err) {
     // Another concurrent scan may have just created it (Gmail returns 409
-    // "Label name exists or conflicts") — re-check before giving up.
-    const nowExistingId = await findLabelId(accessToken);
-    if (nowExistingId) return nowExistingId;
+    // "Label name exists or conflicts") — re-check before giving up. Retried
+    // twice with a short delay in case of a brief propagation lag between
+    // the create that "won" and this list call seeing it.
+    for (const delayMs of [0, 400, 1200]) {
+      if (delayMs) await sleep(delayMs);
+      const nowExistingId = await findLabelId(accessToken);
+      if (nowExistingId) return nowExistingId;
+    }
     throw err;
   }
 }

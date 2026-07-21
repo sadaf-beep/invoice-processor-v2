@@ -41,7 +41,7 @@ runs them through the same Claude extraction as a normal upload, and appends the
 sheet. It's a manual, on-demand scan for now — the daily automated version is a later phase.
 
 **How dedup works:** there's no separate database. Processed messages get a Gmail label
-(`InvoiceIntel-Processed`) applied via the API itself. The search query itself does *not* exclude that
+(`InvoiceIntelProcessed`) applied via the API itself. The search query itself does *not* exclude that
 label — Gmail's search parser handles quoted label-name exclusions inconsistently (confirmed by
 reproducing it directly in Gmail's own search bar), so instead each matched message's own `labelIds` is
 checked in code after fetching it, and already-labeled ones are skipped there. A message only gets
