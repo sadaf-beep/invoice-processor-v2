@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Zap, Loader2, PlayCircle, AlertCircle } from 'lucide-react';
+import { X, Zap, Loader2, PlayCircle, AlertCircle, Radio } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AutomatePanelProps {
@@ -14,6 +14,8 @@ interface AutomationSettingsResponse {
   runMinute: number;
   timezone: string;
   lastRunDate: string | null;
+  lastCheckedAt: string | null;
+  lastResult: string | null;
 }
 
 const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -199,6 +201,31 @@ export const AutomatePanel: React.FC<AutomatePanelProps> = ({ isOpen, onClose, o
                     <p className="text-[12px] text-[color:var(--color-ink-soft)] leading-snug">
                       Processed invoices are archived to Google Drive and emailed to your connected Gmail account
                       — plus a Slack message if configured.
+                    </p>
+                  </section>
+
+                  <section className="space-y-2">
+                    <h3 className={sectionLabel}>Last check-in</h3>
+                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-[color:var(--color-line)] bg-[color:var(--color-surface-sunken)]">
+                      <Radio size={14} className="text-[color:var(--color-ink-muted)] shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        {settings.lastCheckedAt ? (
+                          <>
+                            <p className="text-[12px] font-medium text-[color:var(--color-ink)]">
+                              {new Date(settings.lastCheckedAt).toLocaleString()}
+                            </p>
+                            <p className="text-[11.5px] text-[color:var(--color-ink-muted)] mt-0.5 break-words">{settings.lastResult}</p>
+                          </>
+                        ) : (
+                          <p className="text-[12px] text-[color:var(--color-ink-muted)]">
+                            No check-in yet — this fills in the first time the scheduled scan fires.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-[color:var(--color-ink-muted)]">
+                      Updated every time the daily cron actually invokes, whether it ran, skipped, or errored —
+                      the reliable way to confirm it fired, since Vercel's free-plan logs don't stick around.
                     </p>
                   </section>
                 </>

@@ -115,7 +115,15 @@ plan, and is safe to click repeatedly (Gmail dedup labeling means already-proces
 skipped, not reprocessed).
 
 There's still no in-app history view of past runs — email and the Drive archive are the record. Supabase's
-only job here is holding the one on/off + run-time setting; it isn't a database of processed invoices.
+job here is holding the on/off + run-time setting, plus one more thing: a **"last check-in"** heartbeat.
+
+**Debugging a no-show run**: Vercel's free-plan function logs are short-lived, so if the daily email doesn't
+show up, there's normally no way to tell whether the cron never fired, fired and skipped (e.g. the toggle was
+off), or fired and errored — by the time you look, the log's often already gone. To make that diagnosable
+without needing to catch it in time, `api/cron/daily-scan.ts` writes a `last_checked_at` timestamp and a
+`last_result` string to Supabase on **every** invocation, whatever it did. The Automate panel shows this as
+**"Last check-in"** — so you can always open it and see exactly when the cron last actually ran, and whether
+it skipped (and why), succeeded, or errored, instead of guessing.
 
 ### Setup
 
@@ -140,11 +148,20 @@ only job here is holding the one on/off + run-time setting; it isn't a database 
        run_minute smallint not null default 0,
        timezone text not null default 'Asia/Dhaka',
        last_run_date date,
+       last_checked_at timestamptz,
+       last_result text,
        updated_at timestamptz not null default now()
      );
 
      insert into automation_settings (id) values (1)
      on conflict (id) do nothing;
+     ```
+     If you created this table before the "Last check-in" heartbeat existed, just add the two new columns
+     instead of recreating anything:
+     ```sql
+     alter table automation_settings
+       add column if not exists last_checked_at timestamptz,
+       add column if not exists last_result text;
      ```
    - In the project's **Settings → API**, copy the **Project URL** and the **`service_role`** secret key
      (not the `anon` key — the service role key is what lets the server read/write this table).

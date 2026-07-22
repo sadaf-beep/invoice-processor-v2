@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { runDailyAutomation } from '../../lib/runDailyAutomation.js';
-import { getAutomationSettings, markRanToday, nowInTimezone, isSupabaseConfigured } from '../../lib/automationSettings.js';
+import { getAutomationSettings, recordCheckIn, nowInTimezone, isSupabaseConfigured } from '../../lib/automationSettings.js';
 
 export const config = {
   maxDuration: 60,
@@ -44,21 +44,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const settings = await getAutomationSettings();
     if (!settings.enabled) {
+      await recordCheckIn('skipped: disabled');
       res.status(200).json({ skipped: 'disabled' });
       return;
     }
 
     const { dateStr } = nowInTimezone(settings.timezone);
     if (dateStr === settings.lastRunDate) {
+      await recordCheckIn('skipped: already ran today');
       res.status(200).json({ skipped: 'already ran today', dateStr });
       return;
     }
 
     const result = await runDailyAutomation(anthropicKey);
-    await markRanToday(dateStr);
+    await recordCheckIn(`ran: processed ${result.processed}/${result.total}`, dateStr);
     res.status(200).json(result);
   } catch (error) {
     console.error('Daily scan cron error:', error);
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    const msg = error instanceof Error ? error.message : String(error);
+    try {
+      await recordCheckIn(`error: ${msg}`);
+    } catch (checkInErr) {
+      console.error('Failed to record check-in after error:', checkInErr);
+    }
+    res.status(500).json({ error: msg });
   }
 }

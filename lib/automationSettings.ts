@@ -2,11 +2,11 @@
 // @supabase/supabase-js dependency, matching this project's pattern of thin
 // hand-rolled REST clients (see gmailClient.ts, driveClient.ts) over SDKs.
 //
-// Backs the adjustable "run at HH:MM" schedule shown in the Automate panel.
-// Vercel Cron itself can't be rescheduled at runtime (its time is fixed in
-// vercel.json at deploy time), so instead the cron fires every 15 minutes
-// and checks this single settings row to decide whether it's actually time
-// to run yet.
+// Backs the Automate panel's on/off toggle, plus a "last checked in" heartbeat
+// (last_checked_at/last_result) written on every cron invocation regardless
+// of outcome — since Vercel's free-plan function logs are short-lived, this
+// is the durable way to answer "did the scheduled run actually fire, and
+// what did it do" without needing to catch it in the logs in time.
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -17,6 +17,8 @@ export interface AutomationSettings {
   runMinute: number; // 0-59
   timezone: string; // IANA name, e.g. "Asia/Dhaka"
   lastRunDate: string | null; // YYYY-MM-DD, local to `timezone`
+  lastCheckedAt: string | null; // ISO timestamp — last time the cron endpoint was invoked at all
+  lastResult: string | null; // human-readable outcome of that invocation
 }
 
 export function isSupabaseConfigured(): boolean {
@@ -38,6 +40,8 @@ function rowToSettings(row: any): AutomationSettings {
     runMinute: row?.run_minute ?? 0,
     timezone: row?.timezone ?? 'Asia/Dhaka',
     lastRunDate: row?.last_run_date ?? null,
+    lastCheckedAt: row?.last_checked_at ?? null,
+    lastResult: row?.last_result ?? null,
   };
 }
 
@@ -66,11 +70,17 @@ export async function updateAutomationSettings(
   return rowToSettings(rows[0]);
 }
 
-export async function markRanToday(dateStr: string): Promise<void> {
+// Written on every cron invocation, whatever it did — skipped, ran, or
+// errored — so there's always a durable answer to "did Vercel actually call
+// this today" without needing to catch short-lived function logs in time.
+// `ranDate` is only passed on a successful run, to also mark today as done.
+export async function recordCheckIn(result: string, ranDate?: string): Promise<void> {
+  const body: Record<string, unknown> = { last_checked_at: new Date().toISOString(), last_result: result };
+  if (ranDate) body.last_run_date = ranDate;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/automation_settings?id=eq.1`, {
     method: 'PATCH',
     headers: headers(),
-    body: JSON.stringify({ last_run_date: dateStr }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Supabase error: ${res.status} ${await res.text()}`);
 }
