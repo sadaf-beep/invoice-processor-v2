@@ -98,15 +98,19 @@ Grass Valley/GVCare renewal quotes, CapEx upgrade sheets), not just a PO with di
   whatever the widest contract in that document needs). The app never guesses this for you, since it isn't
   something Claude should decide silently.
 - **Auto-detection on the default path**: even when you leave the format on "Asset invoice," any line item
-  Claude classifies as `PREPAID` triggers an inline prompt — *"N item(s) look like they might be
-  licences — reprocess as a licence import?"* — before that file's results are added to the sheet. This is
-  a plain code check (`Item Type === 'PREPAID'`), not an extra model call. Choosing to reprocess:
-  1. Adds only the *non*-licence rows to the asset sheet (so the PREPAID rows aren't duplicated there).
-  2. Asks for Base vs. Term-dated, then re-runs extraction against the **same file already in memory** — no
-     re-upload needed.
-  3. Creates the licence sheet from that result, same as the explicit "Licence / SLA" path.
-  Declining just keeps the file's results in the asset sheet exactly as before — nothing about the default
-  behavior changes if you never see or never accept this prompt.
+  Claude classifies as `PREPAID` is flagged as a licence candidate — this is a plain code check
+  (`Item Type === 'PREPAID'`), not an extra model call. **All rows always stay in the asset sheet** —
+  candidates are never removed, since a human should be able to verify them there too. Two things happen:
+  1. **Highlighting**: every PREPAID row gets a violet cell highlight in the sheet (the same color as the
+     PREPAID badge), so candidates are visible at a glance without needing to open any prompt.
+  2. **Review checklist**: an inline banner lists each candidate individually with a checkbox (all checked
+     by default) — uncheck any that aren't actually licences (e.g. hardware, freight, tariff lines that got
+     misclassified). Choosing **Skip** leaves things as-is; choosing to process re-runs extraction against
+     the **same file already in memory** (no re-upload), but only for the *approved* items — their
+     manufacturer/product/model/serial are passed to Claude as an explicit allow-list ("extract only these
+     specific line items, nothing else"), rather than letting it freely re-decide across the whole document
+     a second time. That scoping is what keeps unrelated hardware/shipping/tariff lines from ending up in
+     the licence sheet just because they happened to sit near an actual licence line in the source document.
 - Licence sheets are marked with a small scale icon on their tab, and their column layout is fixed (matching
   the format), unlike asset sheets — Add/rename/delete-column still works if you need to adjust one by hand.
 - **Spreadsheet sources**: the Licence / SLA format also accepts a `.csv`, `.xlsx`, or `.xls` file — some

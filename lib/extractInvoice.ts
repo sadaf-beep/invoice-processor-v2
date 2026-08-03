@@ -159,6 +159,13 @@ export interface ExtractLicenseInput {
   fileName?: string;
   format: 'base' | 'term-dated';
   customInstructions: string;
+  // Short identifying descriptions (e.g. "Acme — WidgetPro — SN-123") of
+  // specific line items a human has already reviewed and approved as
+  // licence candidates — when present, extraction is scoped to ONLY these,
+  // rather than letting Claude independently re-decide what counts as a
+  // licence across the whole document (which is how hardware/shipping/
+  // tariff line items were leaking into licence sheets).
+  focusItems?: string[];
 }
 
 const SPREADSHEET_EXTENSION = /\.(csv|xlsx|xls)$/i;
@@ -209,7 +216,7 @@ interface RawLicenseItem {
 }
 
 export async function extractLicenseItems(client: Anthropic, input: ExtractLicenseInput): Promise<ExtractLicenseResult> {
-  const { base64Data, mimeType, fileName, format, customInstructions } = input;
+  const { base64Data, mimeType, fileName, format, customInstructions, focusItems } = input;
   const cleanBase64 = base64Data.replace(/^data:.+;base64,/, '');
   const isSpreadsheet = isSpreadsheetSource(mimeType, fileName);
 
@@ -224,7 +231,16 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     "Start Date"/"End Date"/"Price" or "Year 1 Price"/"Year 2 Price" map into "terms"; a "Notes" or
     "Comments" column maps to Review Notes). Never assume a spreadsheet input already matches the
     output schema as-is.
-
+    ${focusItems && focusItems.length > 0 ? `
+    *** SCOPE RESTRICTION — READ FIRST, OUTRANKS EVERYTHING BELOW ***
+    A human has already reviewed this document's line items and approved ONLY the following as
+    licence candidates. Match each one to its corresponding line in the source document (by
+    manufacturer/product/model/serial — use judgement, the exact wording may differ slightly) and
+    extract ONLY these as licence records. Do NOT extract any other line item in the document, even
+    if it looks like it could be a licence, warranty, SLA, or service — everything else has already
+    been reviewed and excluded by a human and must not appear in your output:
+    ${focusItems.map((f) => `    - ${f}`).join('\n')}
+    ` : ''}
     *** PRIORITY INSTRUCTION ***
     The "USER OVERRIDES" section below contains custom business rules.
     IF ANY INSTRUCTION IN "USER OVERRIDES" CONFLICTS WITH THE RULES BELOW,

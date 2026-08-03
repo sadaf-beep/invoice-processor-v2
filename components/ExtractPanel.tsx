@@ -55,10 +55,13 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
   const [docFormat, setDocFormat] = useState<'asset' | 'license'>('asset');
   const [licenseLayout, setLicenseLayout] = useState<LicenseLayout>('base');
-  // Set while the extraction loop is paused waiting on the user to answer
-  // the "this looks like a license — reprocess?" prompt for one file.
-  const [licensePrompt, setLicensePrompt] = useState<{ fileName: string; count: number } | null>(null);
-  const licensePromptResolverRef = useRef<((decision: 'keep' | 'reprocess') => void) | null>(null);
+  // Set while the extraction loop is paused waiting on the user to review
+  // and approve the PREPAID-classified candidates for one file. PREPAID
+  // rows always stay in the asset sheet regardless — this only decides
+  // whether (and which of) them also get processed into a licence sheet.
+  const [licensePrompt, setLicensePrompt] = useState<{ fileName: string; candidates: InvoiceItem[] } | null>(null);
+  const [approvedCandidates, setApprovedCandidates] = useState<boolean[]>([]);
+  const licensePromptResolverRef = useRef<((approved: InvoiceItem[] | null) => void) | null>(null);
 
   const [source, setSource] = useState<'upload' | 'gmail'>('upload');
   const [daysBack, setDaysBack] = useState(7);
@@ -176,17 +179,36 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
   const isLicenseItem = (item: InvoiceItem) => String(item['Item Type'] ?? '').toUpperCase() === 'PREPAID';
 
-  // Pauses the loop until the user answers the reprocess-as-license banner
-  // for this file — resolved by the banner's own buttons below.
-  const askAboutLicenseItems = (fileName: string, count: number): Promise<'keep' | 'reprocess'> => {
-    setLicensePrompt({ fileName, count });
+  // Short identifying text for a candidate row, shown in the review
+  // checklist and sent to the licence extraction call as a scope
+  // restriction (see focusItems in lib/extractInvoice.ts).
+  const describeItem = (item: InvoiceItem): string => {
+    const parts = [item['Manufacturer'], item['Product Name'], item['Model #'], item['Serial #']]
+      .map((v) => (v ?? '').toString().trim())
+      .filter(Boolean);
+    return parts.join(' — ') || 'Unnamed item';
+  };
+
+  // Pauses the loop until the user reviews the candidate checklist for this
+  // file — resolved by the banner's own buttons below. Resolves to the
+  // approved subset of candidates, or null if the user skipped entirely.
+  const askAboutLicenseItems = (fileName: string, candidates: InvoiceItem[]): Promise<InvoiceItem[] | null> => {
+    setLicensePrompt({ fileName, candidates });
+    setApprovedCandidates(candidates.map(() => true));
     return new Promise((resolve) => {
       licensePromptResolverRef.current = resolve;
     });
   };
 
-  const resolveLicensePrompt = (decision: 'keep' | 'reprocess') => {
-    licensePromptResolverRef.current?.(decision);
+  const skipLicensePrompt = () => {
+    licensePromptResolverRef.current?.(null);
+    licensePromptResolverRef.current = null;
+  };
+
+  const confirmLicensePrompt = () => {
+    if (!licensePrompt) return;
+    const approved = licensePrompt.candidates.filter((_, i) => approvedCandidates[i]);
+    licensePromptResolverRef.current?.(approved);
     licensePromptResolverRef.current = null;
   };
 
@@ -212,22 +234,21 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                 onLicenseDataReady(items, columns, file.name);
               } else {
                 const result = await processInvoiceWithClaude(base64, file.type, activeSheet.columns, activeSheet.customInstructions, pageRange);
-                const licenseCandidates = result.filter(isLicenseItem);
+                // Every row stays in the asset sheet regardless — this is
+                // still a POC and PREPAID rows need human eyes on them here
+                // too, not just in a separate licence sheet.
+                onDataReady(result, file.name, outputMode, activeSheet.customInstructions);
 
-                if (licenseCandidates.length === 0) {
-                  onDataReady(result, file.name, outputMode, activeSheet.customInstructions);
-                } else {
-                  const decision = await askAboutLicenseItems(file.name, licenseCandidates.length);
+                const licenseCandidates = result.filter(isLicenseItem);
+                if (licenseCandidates.length > 0) {
+                  const approved = await askAboutLicenseItems(file.name, licenseCandidates);
                   setLicensePrompt(null);
 
-                  if (decision === 'keep') {
-                    onDataReady(result, file.name, outputMode, activeSheet.customInstructions);
-                  } else {
-                    const remaining = result.filter((item) => !isLicenseItem(item));
-                    if (remaining.length > 0) {
-                      onDataReady(remaining, file.name, outputMode, activeSheet.customInstructions);
-                    }
-                    const licenseResult = await processLicenseWithClaude(base64, file.type, file.name, licenseLayout, activeSheet.customInstructions);
+                  if (approved && approved.length > 0) {
+                    const focusItems = approved.map(describeItem);
+                    const licenseResult = await processLicenseWithClaude(
+                      base64, file.type, file.name, licenseLayout, activeSheet.customInstructions, focusItems
+                    );
                     onLicenseDataReady(licenseResult.items, licenseResult.columns, file.name);
                   }
                 }
@@ -453,31 +474,50 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                         <div className="flex items-start gap-2">
                           <Scale size={15} className="text-[color:var(--color-brand)] shrink-0 mt-0.5" />
                           <p className="text-[12.5px] text-[color:var(--color-ink)] leading-snug">
-                            <strong>{licensePrompt.count}</strong> item{licensePrompt.count === 1 ? '' : 's'} in{' '}
-                            <strong>{licensePrompt.fileName}</strong> look{licensePrompt.count === 1 ? 's' : ''} like{' '}
-                            {licensePrompt.count === 1 ? 'a licence' : 'licences'} (classified PREPAID). Reprocess{' '}
-                            {licensePrompt.count === 1 ? 'it' : 'them'} as a licence import instead of keeping{' '}
-                            {licensePrompt.count === 1 ? 'it' : 'them'} in this sheet?
+                            <strong>{licensePrompt.candidates.length}</strong> item{licensePrompt.candidates.length === 1 ? '' : 's'} in{' '}
+                            <strong>{licensePrompt.fileName}</strong> {licensePrompt.candidates.length === 1 ? 'was' : 'were'} classified PREPAID
+                            — {licensePrompt.candidates.length === 1 ? 'it stays' : 'they stay'} in this sheet either way. Review and approve
+                            which ones should also be processed into a licence sheet:
                           </p>
                         </div>
+
+                        <div className="space-y-1 pl-[23px] max-h-40 overflow-y-auto pr-1">
+                          {licensePrompt.candidates.map((item, i) => (
+                            <label key={i} className="flex items-start gap-2 text-[12px] text-[color:var(--color-ink)] cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={approvedCandidates[i] ?? true}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setApprovedCandidates((prev) => prev.map((v, idx) => (idx === i ? checked : v)));
+                                }}
+                                className="mt-0.5 shrink-0"
+                              />
+                              <span className="leading-snug">{describeItem(item)}</span>
+                            </label>
+                          ))}
+                        </div>
+
                         <div className="flex items-center gap-1.5 pl-[23px]">
                           <span className="text-[11px] text-[color:var(--color-ink-muted)] mr-1">Layout:</span>
                           <button onClick={() => setLicenseLayout('base')} className={`filter-chip ${licenseLayout === 'base' ? 'on' : ''}`}>Base</button>
                           <button onClick={() => setLicenseLayout('term-dated')} className={`filter-chip ${licenseLayout === 'term-dated' ? 'on' : ''}`}>Term-dated</button>
                         </div>
+
                         <div className="flex gap-2 pl-[23px]">
                           <button
-                            onClick={() => resolveLicensePrompt('keep')}
+                            onClick={skipLicensePrompt}
                             className="h-8 px-3 rounded-md text-[12px] font-semibold text-[color:var(--color-ink-soft)] hover:bg-[color:var(--color-surface)] transition-colors"
                           >
-                            Keep in this sheet
+                            Skip
                           </button>
                           <button
-                            onClick={() => resolveLicensePrompt('reprocess')}
-                            className="h-8 px-3 rounded-md text-[12px] font-semibold text-white transition-colors"
+                            onClick={confirmLicensePrompt}
+                            disabled={!approvedCandidates.some(Boolean)}
+                            className="h-8 px-3 rounded-md text-[12px] font-semibold text-white transition-colors disabled:opacity-40"
                             style={{ background: 'var(--color-brand)' }}
                           >
-                            Reprocess as Licence
+                            Process {approvedCandidates.filter(Boolean).length} approved as Licence
                           </button>
                         </div>
                       </div>

@@ -296,6 +296,23 @@ const App: React.FC = () => {
   // no truncation, just the extension stripped since it isn't a file on disk.
   const sheetNameFromFileName = (fileName: string): string => fileName.replace(/\.(pdf|jpe?g|png)$/i, '');
 
+  // PREPAID-classified rows get a highlight so they're visible in the sheet
+  // at a glance — independent of whether they later also get processed into
+  // a licence sheet. Reuses the same violet already used for the PREPAID
+  // type badge elsewhere, and the existing per-cell style mechanism.
+  const licenseHighlightStyles = (items: InvoiceItem[], columns: ColumnConfig[], startIndex: number): Record<string, CellStyle> => {
+    const styles: Record<string, CellStyle> = {};
+    items.forEach((item, i) => {
+      if (String(item['Item Type'] ?? '').toUpperCase() === 'PREPAID') {
+        const rowIndex = startIndex + i;
+        columns.forEach((col) => {
+          styles[`${rowIndex}-${col.id}`] = { backgroundColor: 'var(--color-violet-soft)' };
+        });
+      }
+    });
+    return styles;
+  };
+
   const handleDataReady = (items: InvoiceItem[], fileName: string, mode: 'single' | 'multiple', instructionsUsed: string) => {
     const sheetName = sheetNameFromFileName(fileName);
     setSheets((prevSheets) => {
@@ -303,7 +320,8 @@ const App: React.FC = () => {
         return prevSheets.map((s) => {
           if (s.id === activeSheetId) {
             const isDefaultName = /^Sheet\d+$/.test(s.name);
-            return { ...s, data: [...s.data, ...items], name: isDefaultName ? sheetName : s.name };
+            const highlightStyles = licenseHighlightStyles(items, s.columns, s.data.length);
+            return { ...s, data: [...s.data, ...items], styles: { ...s.styles, ...highlightStyles }, name: isDefaultName ? sheetName : s.name };
           }
           return s;
         });
@@ -315,7 +333,7 @@ const App: React.FC = () => {
         data: items,
         columns: [...activeSheet.columns],
         customInstructions: instructionsUsed,
-        styles: {},
+        styles: licenseHighlightStyles(items, activeSheet.columns, 0),
       };
       return [...prevSheets, newSheet];
     });
