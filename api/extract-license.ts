@@ -9,6 +9,7 @@ export const config = {
 interface ExtractLicenseRequestBody {
   base64Data: string;
   mimeType: string;
+  fileName?: string;
   format: 'base' | 'term-dated';
   customInstructions: string;
 }
@@ -25,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { base64Data, mimeType, format, customInstructions } = req.body as ExtractLicenseRequestBody;
+  const { base64Data, mimeType, fileName, format, customInstructions } = req.body as ExtractLicenseRequestBody;
 
   if (!base64Data || !mimeType || (format !== 'base' && format !== 'term-dated')) {
     res.status(400).json({ error: 'Missing required fields: base64Data, mimeType, format ("base" or "term-dated").' });
@@ -35,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = new Anthropic({ apiKey });
 
   try {
-    const result = await extractLicenseItems(client, { base64Data, mimeType, format, customInstructions });
+    const result = await extractLicenseItems(client, { base64Data, mimeType, fileName, format, customInstructions });
     res.status(200).json(result);
   } catch (error) {
     console.error('Claude license extraction error:', error);

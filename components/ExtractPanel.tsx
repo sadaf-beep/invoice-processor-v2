@@ -29,7 +29,14 @@ interface FileStatus {
   errorMessage?: string;
 }
 
-const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png'];
+const ASSET_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+// Licence documents sometimes arrive as a spreadsheet export rather than a
+// PDF/image — allowed only in the licence format, since asset invoices are
+// consistently PDF/image in practice. Browsers report CSV's MIME type
+// inconsistently (sometimes blank or application/octet-stream), so the
+// extension check below is the more reliable signal for that one.
+const SPREADSHEET_TYPES = ['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+const SPREADSHEET_EXTENSION = /\.(csv|xlsx|xls)$/i;
 
 const cleanErr = (e: unknown): string => {
   let s = e instanceof Error ? e.message : String(e);
@@ -113,8 +120,14 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     return () => clearInterval(interval);
   }, [isProcessingGlobal]);
 
+  const isAcceptedFile = (f: File) => {
+    if (ASSET_TYPES.includes(f.type)) return true;
+    if (docFormat !== 'license') return false;
+    return SPREADSHEET_TYPES.includes(f.type) || SPREADSHEET_EXTENSION.test(f.name);
+  };
+
   const addFiles = (incoming: File[]) => {
-    const valid = incoming.filter((f) => ACCEPTED.includes(f.type));
+    const valid = incoming.filter(isAcceptedFile);
     if (valid.length === 0) return;
     setFiles((prev) => {
       const existing = new Set(prev.map((f) => f.name));
@@ -195,7 +208,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
               const base64 = reader.result as string;
 
               if (docFormat === 'license') {
-                const { items, columns } = await processLicenseWithClaude(base64, file.type, licenseLayout, activeSheet.customInstructions);
+                const { items, columns } = await processLicenseWithClaude(base64, file.type, file.name, licenseLayout, activeSheet.customInstructions);
                 onLicenseDataReady(items, columns, file.name);
               } else {
                 const result = await processInvoiceWithClaude(base64, file.type, activeSheet.columns, activeSheet.customInstructions, pageRange);
@@ -214,7 +227,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                     if (remaining.length > 0) {
                       onDataReady(remaining, file.name, outputMode, activeSheet.customInstructions);
                     }
-                    const licenseResult = await processLicenseWithClaude(base64, file.type, licenseLayout, activeSheet.customInstructions);
+                    const licenseResult = await processLicenseWithClaude(base64, file.type, file.name, licenseLayout, activeSheet.customInstructions);
                     onLicenseDataReady(licenseResult.items, licenseResult.columns, file.name);
                   }
                 }
@@ -306,6 +319,43 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-5 py-5 space-y-7">
+              {/* Format — Gmail-scanned invoices stay asset-only for now */}
+              {source === 'upload' && (
+                <section className="space-y-2.5">
+                  <h3 className={sectionLabel}>Format</h3>
+                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-[color:var(--color-surface-sunken)]">
+                    <button
+                      onClick={() => setDocFormat('asset')}
+                      className={`h-8 rounded-md text-[12.5px] font-semibold transition-colors flex items-center justify-center gap-1.5
+                        ${docFormat === 'asset' ? 'bg-[color:var(--color-surface)] text-[color:var(--color-ink)] shadow-sm' : 'text-[color:var(--color-ink-muted)]'}`}
+                    >
+                      <UploadCloud size={13} /> Asset invoice
+                    </button>
+                    <button
+                      onClick={() => setDocFormat('license')}
+                      className={`h-8 rounded-md text-[12.5px] font-semibold transition-colors flex items-center justify-center gap-1.5
+                        ${docFormat === 'license' ? 'bg-[color:var(--color-surface)] text-[color:var(--color-ink)] shadow-sm' : 'text-[color:var(--color-ink-muted)]'}`}
+                    >
+                      <Scale size={13} /> Licence / SLA
+                    </button>
+                  </div>
+                  {docFormat === 'license' && (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[12px] text-[color:var(--color-ink-soft)] font-medium mr-1">Layout:</span>
+                        <button onClick={() => setLicenseLayout('base')} className={`filter-chip ${licenseLayout === 'base' ? 'on' : ''}`}>Base</button>
+                        <button onClick={() => setLicenseLayout('term-dated')} className={`filter-chip ${licenseLayout === 'term-dated' ? 'on' : ''}`}>Term-dated</button>
+                      </div>
+                      <p className="text-[11px] text-[color:var(--color-ink-muted)]">
+                        Produces a separate licence-format sheet (Contract Name, Term dates, Category, Review Notes,
+                        etc.) instead of the asset columns — use Term-dated for multi-year contracts. Accepts a
+                        PDF/image quote, or a CSV/Excel export if that's how the licence data arrives.
+                      </p>
+                    </>
+                  )}
+                </section>
+              )}
+
               {/* Source */}
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -344,12 +394,21 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                       className={`rounded-xl px-4 py-7 flex flex-col items-center justify-center text-center cursor-pointer transition-colors border-2 border-dashed
                         ${dragOver ? 'border-[color:var(--color-brand)] bg-[color:var(--color-brand-soft)]' : 'border-[color:var(--color-line-strong)] hover:border-[color:var(--color-brand)] hover:bg-[color:var(--color-brand-soft)]'}`}
                     >
-                      <input ref={fileInputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={handleFileChange} />
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        accept={docFormat === 'license' ? '.pdf,.jpg,.jpeg,.png,.csv,.xlsx,.xls' : '.pdf,.jpg,.jpeg,.png'}
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
                       <div className="w-10 h-10 rounded-xl bg-[color:var(--color-surface-sunken)] flex items-center justify-center mb-2.5">
                         <UploadCloud className="w-5 h-5 text-[color:var(--color-ink-soft)]" />
                       </div>
                       <p className="text-[13px] font-semibold text-[color:var(--color-ink)]">Click to upload or drag & drop</p>
-                      <p className="text-[11px] text-[color:var(--color-ink-muted)] mt-0.5">PDF, JPG or PNG · up to 100 files</p>
+                      <p className="text-[11px] text-[color:var(--color-ink-muted)] mt-0.5">
+                        {docFormat === 'license' ? 'PDF, JPG, PNG, CSV or Excel · up to 100 files' : 'PDF, JPG or PNG · up to 100 files'}
+                      </p>
                     </div>
 
                     {files.length > 0 && (
@@ -494,42 +553,6 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                   </div>
                 )}
               </section>
-
-              {/* Format — Gmail-scanned invoices stay asset-only for now */}
-              {source === 'upload' && (
-                <section className="space-y-2.5">
-                  <h3 className={sectionLabel}>Format</h3>
-                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-[color:var(--color-surface-sunken)]">
-                    <button
-                      onClick={() => setDocFormat('asset')}
-                      className={`h-8 rounded-md text-[12.5px] font-semibold transition-colors flex items-center justify-center gap-1.5
-                        ${docFormat === 'asset' ? 'bg-[color:var(--color-surface)] text-[color:var(--color-ink)] shadow-sm' : 'text-[color:var(--color-ink-muted)]'}`}
-                    >
-                      <UploadCloud size={13} /> Asset invoice
-                    </button>
-                    <button
-                      onClick={() => setDocFormat('license')}
-                      className={`h-8 rounded-md text-[12.5px] font-semibold transition-colors flex items-center justify-center gap-1.5
-                        ${docFormat === 'license' ? 'bg-[color:var(--color-surface)] text-[color:var(--color-ink)] shadow-sm' : 'text-[color:var(--color-ink-muted)]'}`}
-                    >
-                      <Scale size={13} /> Licence / SLA
-                    </button>
-                  </div>
-                  {docFormat === 'license' && (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] text-[color:var(--color-ink-soft)] font-medium mr-1">Layout:</span>
-                        <button onClick={() => setLicenseLayout('base')} className={`filter-chip ${licenseLayout === 'base' ? 'on' : ''}`}>Base</button>
-                        <button onClick={() => setLicenseLayout('term-dated')} className={`filter-chip ${licenseLayout === 'term-dated' ? 'on' : ''}`}>Term-dated</button>
-                      </div>
-                      <p className="text-[11px] text-[color:var(--color-ink-muted)]">
-                        Produces a separate licence-format sheet (Contract Name, Term dates, Category, Review Notes,
-                        etc.) instead of the asset columns — use Term-dated for multi-year contracts.
-                      </p>
-                    </>
-                  )}
-                </section>
-              )}
 
               {/* Output mode — not meaningful for the license format, which always creates its own sheet */}
               {docFormat === 'asset' && (

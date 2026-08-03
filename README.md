@@ -109,6 +109,12 @@ Grass Valley/GVCare renewal quotes, CapEx upgrade sheets), not just a PO with di
   behavior changes if you never see or never accept this prompt.
 - Licence sheets are marked with a small scale icon on their tab, and their column layout is fixed (matching
   the format), unlike asset sheets — Add/rename/delete-column still works if you need to adjust one by hand.
+- **Spreadsheet sources**: the Licence / SLA format also accepts a `.csv`, `.xlsx`, or `.xls` file — some
+  licence data arrives as a spreadsheet export rather than a PDF quote. The server parses every sheet/tab
+  into CSV text (via the `xlsx` package) and hands that to Claude as plain text instead of a document/image,
+  with the same field rules — including mapping whatever arbitrary column headers the source file happens
+  to use onto the target schema. Asset invoice uploads stay PDF/JPG/PNG only, since POs consistently arrive
+  that way in practice.
 
 ## Daily automation
 

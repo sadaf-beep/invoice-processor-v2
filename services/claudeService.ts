@@ -32,13 +32,14 @@ export const processInvoiceWithClaude = async (
 export const processLicenseWithClaude = async (
   base64Data: string,
   mimeType: string,
+  fileName: string,
   format: 'base' | 'term-dated',
   customInstructions: string
 ): Promise<{ items: InvoiceItem[]; columns: ColumnConfig[] }> => {
   const response = await fetch('/api/extract-license', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base64Data, mimeType, format, customInstructions }),
+    body: JSON.stringify({ base64Data, mimeType, fileName, format, customInstructions }),
   });
 
   if (!response.ok) {

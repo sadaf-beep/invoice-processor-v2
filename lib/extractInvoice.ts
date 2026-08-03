@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import * as XLSX from 'xlsx';
 import { InvoiceItem, ColumnConfig, LICENSE_BASE_COLUMNS, buildTermDatedColumns } from '../types.js';
 
 // Internal interface that includes Quantity for processing logic
@@ -153,8 +154,28 @@ export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoi
 export interface ExtractLicenseInput {
   base64Data: string;
   mimeType: string;
+  // Original filename — used to detect a spreadsheet source, since browsers
+  // report inconsistent (or blank) MIME types for .csv across OSes.
+  fileName?: string;
   format: 'base' | 'term-dated';
   customInstructions: string;
+}
+
+const SPREADSHEET_EXTENSION = /\.(csv|xlsx|xls)$/i;
+const SPREADSHEET_MIME = /spreadsheet|csv|ms-excel/i;
+
+function isSpreadsheetSource(mimeType: string, fileName?: string): boolean {
+  return (!!fileName && SPREADSHEET_EXTENSION.test(fileName)) || SPREADSHEET_MIME.test(mimeType);
+}
+
+// Renders every sheet/tab as CSV text, labeled by sheet name, so a
+// multi-tab workbook (e.g. a GVCare equipment appendix on its own tab)
+// reaches Claude with the same completeness a multi-page PDF would.
+function spreadsheetToPromptText(buffer: Buffer): string {
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  return workbook.SheetNames
+    .map((name) => `--- Sheet: ${name} ---\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`)
+    .join('\n\n');
 }
 
 export interface ExtractLicenseResult {
@@ -188,13 +209,21 @@ interface RawLicenseItem {
 }
 
 export async function extractLicenseItems(client: Anthropic, input: ExtractLicenseInput): Promise<ExtractLicenseResult> {
-  const { base64Data, mimeType, format, customInstructions } = input;
+  const { base64Data, mimeType, fileName, format, customInstructions } = input;
   const cleanBase64 = base64Data.replace(/^data:.+;base64,/, '');
+  const isSpreadsheet = isSpreadsheetSource(mimeType, fileName);
 
   const systemPrompt = `
     You are an expert at parsing vendor licence and support-agreement documents (e.g. Ross Video,
     Grass Valley/GVCare renewal quotes, CapEx upgrade sheets) into structured licence records for
     import — NOT a generic invoice/PO. Follow these rules precisely.
+
+    The source may be a PDF/image of a quote, OR a raw spreadsheet export (shown below as CSV text,
+    one section per original sheet/tab) with its own arbitrary column headers that do NOT already
+    match the target fields — map its columns to the fields below using judgement (e.g. columns named
+    "Start Date"/"End Date"/"Price" or "Year 1 Price"/"Year 2 Price" map into "terms"; a "Notes" or
+    "Comments" column maps to Review Notes). Never assume a spreadsheet input already matches the
+    output schema as-is.
 
     *** PRIORITY INSTRUCTION ***
     The "USER OVERRIDES" section below contains custom business rules.
@@ -258,25 +287,35 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     body must start with "[" and end with "]".
   `;
 
-  const isImage = mimeType.startsWith('image/');
-  const documentBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam = isImage
-    ? { type: 'image', source: { type: 'base64', media_type: mimeType as any, data: cleanBase64 } }
-    : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: cleanBase64 } };
+  let content: Anthropic.MessageParam['content'];
+  if (isSpreadsheet) {
+    // Spreadsheets aren't a document/image type Claude's API can read
+    // directly — parse them into CSV text server-side and hand that over
+    // as plain text instead, alongside the same field rules.
+    const sheetText = spreadsheetToPromptText(Buffer.from(cleanBase64, 'base64'));
+    content = [
+      {
+        type: 'text',
+        text: `SOURCE SPREADSHEET DATA (raw rows below — map into the target fields per the rules above):\n\n${sheetText}`,
+      },
+    ];
+  } else {
+    const isImage = mimeType.startsWith('image/');
+    const documentBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam = isImage
+      ? { type: 'image', source: { type: 'base64', media_type: mimeType as any, data: cleanBase64 } }
+      : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: cleanBase64 } };
+    content = [
+      documentBlock,
+      { type: 'text', text: 'Extract every licence/contract line item per the rules above.' },
+    ];
+  }
 
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 16000,
     thinking: { type: 'adaptive' },
     system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          documentBlock,
-          { type: 'text', text: 'Extract every licence/contract line item per the rules above.' },
-        ],
-      },
-    ],
+    messages: [{ role: 'user', content }],
   });
 
   const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
