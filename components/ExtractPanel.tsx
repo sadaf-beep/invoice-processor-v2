@@ -1,17 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X, UploadCloud, FileText, Bot, RotateCcw,
-  CheckCircle2, AlertCircle, Loader2, Sparkles, Mail, MailX, Plus,
+  CheckCircle2, AlertCircle, Loader2, Sparkles, Mail, MailX, Plus, Scale,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ColumnConfig, Sheet, InvoiceItem } from '../types';
-import { processInvoiceWithClaude } from '../services/claudeService';
+import { processInvoiceWithClaude, processLicenseWithClaude } from '../services/claudeService';
 import { scanGmailForInvoices, GmailScanMessageResult } from '../services/gmailService';
+
+type LicenseLayout = 'base' | 'term-dated';
 
 interface ExtractPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onDataReady: (items: InvoiceItem[], fileName: string, mode: 'single' | 'multiple', instructionsUsed: string) => void;
+  onLicenseDataReady: (items: InvoiceItem[], columns: ColumnConfig[], fileName: string) => void;
   onConfigChange: (columns: ColumnConfig[], instructions: string) => void;
   onError: (fileName: string, message: string) => void;
   activeSheet: Sheet;
@@ -35,13 +38,20 @@ const cleanErr = (e: unknown): string => {
 };
 
 
-export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onDataReady, onConfigChange, onError, activeSheet, pendingFiles, onPendingFilesConsumed }) => {
+export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onDataReady, onLicenseDataReady, onConfigChange, onError, activeSheet, pendingFiles, onPendingFilesConsumed }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [pageRange, setPageRange] = useState('All');
   const [outputMode, setOutputMode] = useState<'single' | 'multiple'>('single');
   const [fileStatuses, setFileStatuses] = useState<Record<string, FileStatus>>({});
   const [isProcessingGlobal, setIsProcessingGlobal] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  const [docFormat, setDocFormat] = useState<'asset' | 'license'>('asset');
+  const [licenseLayout, setLicenseLayout] = useState<LicenseLayout>('base');
+  // Set while the extraction loop is paused waiting on the user to answer
+  // the "this looks like a license — reprocess?" prompt for one file.
+  const [licensePrompt, setLicensePrompt] = useState<{ fileName: string; count: number } | null>(null);
+  const licensePromptResolverRef = useRef<((decision: 'keep' | 'reprocess') => void) | null>(null);
 
   const [source, setSource] = useState<'upload' | 'gmail'>('upload');
   const [daysBack, setDaysBack] = useState(7);
@@ -151,6 +161,22 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     setFileStatuses((prev) => ({ ...prev, [fileName]: { status: 'idle', progress: 0, errorMessage: undefined } }));
   };
 
+  const isLicenseItem = (item: InvoiceItem) => String(item['Item Type'] ?? '').toUpperCase() === 'PREPAID';
+
+  // Pauses the loop until the user answers the reprocess-as-license banner
+  // for this file — resolved by the banner's own buttons below.
+  const askAboutLicenseItems = (fileName: string, count: number): Promise<'keep' | 'reprocess'> => {
+    setLicensePrompt({ fileName, count });
+    return new Promise((resolve) => {
+      licensePromptResolverRef.current = resolve;
+    });
+  };
+
+  const resolveLicensePrompt = (decision: 'keep' | 'reprocess') => {
+    licensePromptResolverRef.current?.(decision);
+    licensePromptResolverRef.current = null;
+  };
+
   const processFiles = async () => {
     if (files.length === 0) return;
     setIsProcessingGlobal(true);
@@ -167,8 +193,33 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
           reader.onload = async () => {
             try {
               const base64 = reader.result as string;
-              const result = await processInvoiceWithClaude(base64, file.type, activeSheet.columns, activeSheet.customInstructions, pageRange);
-              onDataReady(result, file.name, outputMode, activeSheet.customInstructions);
+
+              if (docFormat === 'license') {
+                const { items, columns } = await processLicenseWithClaude(base64, file.type, licenseLayout, activeSheet.customInstructions);
+                onLicenseDataReady(items, columns, file.name);
+              } else {
+                const result = await processInvoiceWithClaude(base64, file.type, activeSheet.columns, activeSheet.customInstructions, pageRange);
+                const licenseCandidates = result.filter(isLicenseItem);
+
+                if (licenseCandidates.length === 0) {
+                  onDataReady(result, file.name, outputMode, activeSheet.customInstructions);
+                } else {
+                  const decision = await askAboutLicenseItems(file.name, licenseCandidates.length);
+                  setLicensePrompt(null);
+
+                  if (decision === 'keep') {
+                    onDataReady(result, file.name, outputMode, activeSheet.customInstructions);
+                  } else {
+                    const remaining = result.filter((item) => !isLicenseItem(item));
+                    if (remaining.length > 0) {
+                      onDataReady(remaining, file.name, outputMode, activeSheet.customInstructions);
+                    }
+                    const licenseResult = await processLicenseWithClaude(base64, file.type, licenseLayout, activeSheet.customInstructions);
+                    onLicenseDataReady(licenseResult.items, licenseResult.columns, file.name);
+                  }
+                }
+              }
+
               setFileStatuses((prev) => ({ ...prev, [file.name]: { status: 'success', progress: 100 } }));
               resolve();
             } catch (e) {
@@ -337,6 +388,41 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                         })}
                       </div>
                     )}
+
+                    {licensePrompt && (
+                      <div className="px-3 py-3 rounded-lg border border-[color:var(--color-brand-border)] bg-[color:var(--color-brand-soft)] space-y-2.5">
+                        <div className="flex items-start gap-2">
+                          <Scale size={15} className="text-[color:var(--color-brand)] shrink-0 mt-0.5" />
+                          <p className="text-[12.5px] text-[color:var(--color-ink)] leading-snug">
+                            <strong>{licensePrompt.count}</strong> item{licensePrompt.count === 1 ? '' : 's'} in{' '}
+                            <strong>{licensePrompt.fileName}</strong> look{licensePrompt.count === 1 ? 's' : ''} like{' '}
+                            {licensePrompt.count === 1 ? 'a licence' : 'licences'} (classified PREPAID). Reprocess{' '}
+                            {licensePrompt.count === 1 ? 'it' : 'them'} as a licence import instead of keeping{' '}
+                            {licensePrompt.count === 1 ? 'it' : 'them'} in this sheet?
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 pl-[23px]">
+                          <span className="text-[11px] text-[color:var(--color-ink-muted)] mr-1">Layout:</span>
+                          <button onClick={() => setLicenseLayout('base')} className={`filter-chip ${licenseLayout === 'base' ? 'on' : ''}`}>Base</button>
+                          <button onClick={() => setLicenseLayout('term-dated')} className={`filter-chip ${licenseLayout === 'term-dated' ? 'on' : ''}`}>Term-dated</button>
+                        </div>
+                        <div className="flex gap-2 pl-[23px]">
+                          <button
+                            onClick={() => resolveLicensePrompt('keep')}
+                            className="h-8 px-3 rounded-md text-[12px] font-semibold text-[color:var(--color-ink-soft)] hover:bg-[color:var(--color-surface)] transition-colors"
+                          >
+                            Keep in this sheet
+                          </button>
+                          <button
+                            onClick={() => resolveLicensePrompt('reprocess')}
+                            className="h-8 px-3 rounded-md text-[12px] font-semibold text-white transition-colors"
+                            style={{ background: 'var(--color-brand)' }}
+                          >
+                            Reprocess as Licence
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -409,7 +495,44 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                 )}
               </section>
 
-              {/* Output mode */}
+              {/* Format — Gmail-scanned invoices stay asset-only for now */}
+              {source === 'upload' && (
+                <section className="space-y-2.5">
+                  <h3 className={sectionLabel}>Format</h3>
+                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-[color:var(--color-surface-sunken)]">
+                    <button
+                      onClick={() => setDocFormat('asset')}
+                      className={`h-8 rounded-md text-[12.5px] font-semibold transition-colors flex items-center justify-center gap-1.5
+                        ${docFormat === 'asset' ? 'bg-[color:var(--color-surface)] text-[color:var(--color-ink)] shadow-sm' : 'text-[color:var(--color-ink-muted)]'}`}
+                    >
+                      <UploadCloud size={13} /> Asset invoice
+                    </button>
+                    <button
+                      onClick={() => setDocFormat('license')}
+                      className={`h-8 rounded-md text-[12.5px] font-semibold transition-colors flex items-center justify-center gap-1.5
+                        ${docFormat === 'license' ? 'bg-[color:var(--color-surface)] text-[color:var(--color-ink)] shadow-sm' : 'text-[color:var(--color-ink-muted)]'}`}
+                    >
+                      <Scale size={13} /> Licence / SLA
+                    </button>
+                  </div>
+                  {docFormat === 'license' && (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[12px] text-[color:var(--color-ink-soft)] font-medium mr-1">Layout:</span>
+                        <button onClick={() => setLicenseLayout('base')} className={`filter-chip ${licenseLayout === 'base' ? 'on' : ''}`}>Base</button>
+                        <button onClick={() => setLicenseLayout('term-dated')} className={`filter-chip ${licenseLayout === 'term-dated' ? 'on' : ''}`}>Term-dated</button>
+                      </div>
+                      <p className="text-[11px] text-[color:var(--color-ink-muted)]">
+                        Produces a separate licence-format sheet (Contract Name, Term dates, Category, Review Notes,
+                        etc.) instead of the asset columns — use Term-dated for multi-year contracts.
+                      </p>
+                    </>
+                  )}
+                </section>
+              )}
+
+              {/* Output mode — not meaningful for the license format, which always creates its own sheet */}
+              {docFormat === 'asset' && (
               <section className="space-y-2.5">
                 <h3 className={sectionLabel}>Output</h3>
                 <div className="grid grid-cols-1 gap-2">
@@ -432,8 +555,11 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                   ))}
                 </div>
               </section>
+              )}
 
-              {/* Columns — addable here, or rename/delete directly on the sheet's headers */}
+              {/* Columns — addable here, or rename/delete directly on the sheet's headers.
+                  Not shown for the license format, since its columns are fixed by the layout choice above. */}
+              {docFormat === 'asset' && (
               <section className="space-y-2.5">
                 <h3 className={sectionLabel}>Columns extracted</h3>
                 <div className="flex flex-wrap gap-1.5 items-center">
@@ -464,6 +590,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                   Use the note below to tell Claude what should go in a new column. Rename or delete existing ones on the sheet's headers.
                 </p>
               </section>
+              )}
 
               {/* Extra instructions */}
               <section className="space-y-2.5">

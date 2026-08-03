@@ -82,6 +82,34 @@ failed extraction is retried on the next scan.
 Once all three `GMAIL_*` variables are set, "Scan Gmail" in the Extract panel works. Without them, it
 fails with a clear "Gmail is not connected yet" error instead of a silent failure.
 
+## Licence / support-agreement extraction
+
+Alongside the normal asset-invoice extraction, the Extract panel has a **Format** choice (upload source
+only, not Gmail scan yet): **Asset invoice** (the default, unchanged) or **Licence / SLA**. This exists
+because a proper licence record (Contract Name, Term dates, Category, Quote Number, Review Notes, etc.)
+needs fields a generic invoice extraction never asks for — it's a different document shape (Ross Video,
+Grass Valley/GVCare renewal quotes, CapEx upgrade sheets), not just a PO with different columns.
+
+- **Picking "Licence / SLA" up front** runs the dedicated licence extraction directly (`lib/extractInvoice.ts`'s
+  `extractLicenseItems`, via `api/extract-license.ts`), and always creates a **new, separate sheet** with the
+  licence column layout — it never mixes into the active asset sheet.
+- **Layout**: choose **Base** (one row per line item; a multi-year contract becomes one row per year) or
+  **Term-dated** (one row per line item, with a `Term 1`, `Term 2`, … column group per year, sized to
+  whatever the widest contract in that document needs). The app never guesses this for you, since it isn't
+  something Claude should decide silently.
+- **Auto-detection on the default path**: even when you leave the format on "Asset invoice," any line item
+  Claude classifies as `PREPAID` triggers an inline prompt — *"N item(s) look like they might be
+  licences — reprocess as a licence import?"* — before that file's results are added to the sheet. This is
+  a plain code check (`Item Type === 'PREPAID'`), not an extra model call. Choosing to reprocess:
+  1. Adds only the *non*-licence rows to the asset sheet (so the PREPAID rows aren't duplicated there).
+  2. Asks for Base vs. Term-dated, then re-runs extraction against the **same file already in memory** — no
+     re-upload needed.
+  3. Creates the licence sheet from that result, same as the explicit "Licence / SLA" path.
+  Declining just keeps the file's results in the asset sheet exactly as before — nothing about the default
+  behavior changes if you never see or never accept this prompt.
+- Licence sheets are marked with a small scale icon on their tab, and their column layout is fixed (matching
+  the format), unlike asset sheets — Add/rename/delete-column still works if you need to adjust one by hand.
+
 ## Daily automation
 
 A Vercel Cron job (`vercel.json`) hits `api/cron/daily-scan.ts` once a day at a **fixed time set in
@@ -198,3 +226,6 @@ it skipped (and why), succeeded, or errored, instead of guessing.
   shared between `api/extract.ts` and `api/gmail-scan.ts` via `lib/extractInvoice.ts`.
 - New: unattended daily automation (see **Daily automation** above) — a Vercel Cron job that scans,
   extracts, archives to Drive, emails a summary, and optionally posts a Slack notification.
+- New: a separate **licence/support-agreement extraction path** (see above) — a distinct schema and rule
+  set from the asset invoice extraction, produced into its own sheet, with automatic detection of stray
+  PREPAID line items inside an otherwise normal asset invoice.

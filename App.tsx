@@ -3,7 +3,7 @@ import {
   Sparkles, Plus, X, Undo, Redo, Bold, Italic,
   AlignLeft, AlignCenter, AlignRight, Trash2,
   Eraser, BookOpen, FileSpreadsheet, FileText, Search, Sun, Moon, UploadCloud,
-  FileUp, FolderArchive, ArrowUpToLine, Zap,
+  FileUp, FolderArchive, ArrowUpToLine, Zap, Scale,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { downloadSOP } from './lib/sopGenerator';
@@ -322,6 +322,25 @@ const App: React.FC = () => {
     pushToast('success', `Extracted ${items.length} row${items.length === 1 ? '' : 's'}`, fileName);
   };
 
+  // Licence extractions always land in their own new sheet — the column
+  // layout (base or term-dated) is nothing like the active asset sheet's
+  // columns, so appending to it doesn't make sense the way asset rows do.
+  const handleLicenseDataReady = (items: InvoiceItem[], columns: ColumnConfig[], fileName: string) => {
+    const newId = Date.now().toString();
+    const newSheet: Sheet = {
+      id: newId,
+      name: sheetNameFromFileName(fileName).slice(0, 31), // Excel/Sheets tab name limit
+      data: items,
+      columns,
+      customInstructions: '',
+      styles: {},
+      kind: 'license',
+    };
+    setSheets((prevSheets) => [...prevSheets, newSheet]);
+    setActiveSheetId(newId);
+    pushToast('success', `Created licence sheet · ${items.length} row${items.length === 1 ? '' : 's'}`, fileName);
+  };
+
   useEffect(() => {
     const closeMenu = () => setActiveMenu(null);
     if (activeMenu) window.addEventListener('click', closeMenu);
@@ -474,22 +493,27 @@ const App: React.FC = () => {
       {!isEmpty && (
         <div className="h-11 bg-[color:var(--color-canvas)] border-b border-[color:var(--color-line)] flex items-center px-3 gap-3 shrink-0 overflow-x-auto no-scrollbar">
           <span className="text-[12px] font-bold text-[color:var(--color-ink)] numerical shrink-0">{rowCount} item{rowCount === 1 ? '' : 's'}</span>
-          <span className="text-[12px] text-[color:var(--color-ink-muted)] numerical shrink-0">
-            · ${totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} total
-          </span>
+          {activeSheet.kind !== 'license' && (
+            <span className="text-[12px] text-[color:var(--color-ink-muted)] numerical shrink-0">
+              · ${totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} total
+            </span>
+          )}
 
           <div className="w-px h-5 bg-[color:var(--color-line)] shrink-0" />
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            {TYPE_FILTERS.map(({ key, match }) => {
-              const count = match ? (typeCounts[match] || 0) : rowCount;
-              return (
-                <button key={key} onClick={() => setTypeFilter(key)} className={`filter-chip ${typeFilter === key ? 'on' : ''}`}>
-                  {key} <span className="n">{count}</span>
-                </button>
-              );
-            })}
-          </div>
+          {/* Item Type filters don't apply to licence sheets — they use their own "Type" field (License/SLA/Hardware/…) */}
+          {activeSheet.kind !== 'license' && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {TYPE_FILTERS.map(({ key, match }) => {
+                const count = match ? (typeCounts[match] || 0) : rowCount;
+                return (
+                  <button key={key} onClick={() => setTypeFilter(key)} className={`filter-chip ${typeFilter === key ? 'on' : ''}`}>
+                    {key} <span className="n">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div className="flex-1" />
 
@@ -588,6 +612,7 @@ const App: React.FC = () => {
               />
             ) : (
               <>
+                {sheet.kind === 'license' && <Scale size={11} className="text-[color:var(--color-brand)] shrink-0" />}
                 <span className="truncate max-w-[160px]">{sheet.name}</span>
                 {sheets.length > 1 && (
                   <button
@@ -615,6 +640,7 @@ const App: React.FC = () => {
         isOpen={isPanelOpen}
         onClose={() => setIsPanelOpen(false)}
         onDataReady={handleDataReady}
+        onLicenseDataReady={handleLicenseDataReady}
         onConfigChange={(cols, inst) => updateActiveSheet({ columns: cols, customInstructions: inst })}
         onError={(fileName, msg) => pushToast('error', `Couldn't process ${fileName}`, msg)}
         activeSheet={activeSheet}
