@@ -299,19 +299,21 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
        description (e.g. include the model or product group in the name).
     2. **Client**: leave blank unless the document explicitly states this is a System Integrator (SI)
        reseller account — never populate with the end customer/venue name.
-    3. **Term dates** (inside "terms"): use the actual per-line-item coverage Start/End dates from the
-       proposal/line-item detail — never the quote preparation date or the quote's own validity date.
-       These vary by line item; do not apply one date range to everything. If a line has no coverage
-       dates at all (e.g. a perpetual licence, or a one-time CapEx upgrade with no term), still
+    3. **Term dates** (inside "terms"): use ONLY explicit coverage Start/End dates that are actually
+       stated in the document for that line — whether as their own field(s) in a proposal/line-item
+       detail section, or written out within the item's own name/description (e.g. a line literally
+       stating a coverage range). These vary by line item; do not apply one date range to everything.
+       **Purchase Date, Order Date, Due Date, and quote validity date are NEVER term dates** — they
+       mean something else entirely (when the order was placed, when payment/delivery is due) and
+       must never be used to calculate, infer, or guess a coverage Start/End. A duration mentioned in
+       the name alone ("Annual Subscription," "3 Year Term," "One Year") without an actual date range
+       stated anywhere is NOT enough to fabricate dates from — leave "start" and "end" as empty
+       strings in that case. Whenever there are no explicit term dates for a line (perpetual licence,
+       one-time CapEx upgrade, or a duration-only description with no real date range given), still
        include exactly ONE entry in "terms" carrying that line's price (from "amount"), with "start"
-       and "end" left as empty strings — NEVER return an empty "terms" array just because dates are
-       missing, since that would silently drop the price too. Add a Review Note explaining why dates
-       are blank (e.g. "Perpetual licence — no defined term dates" or "One-time upgrade — no defined
-       term dates").
-       Only infer a term's Start/End from other dates on the document (e.g. order date, due date) as
-       a last resort when the document has no coverage dates of its own — and when you do, say
-       exactly which two dates you actually used in the Review Note (do not describe dates you
-       didn't actually use).
+       and "end" left blank — NEVER return an empty "terms" array just because dates are missing,
+       since that would silently drop the price too. Add a Review Note noting that no explicit term
+       dates were stated in the source.
     4. **Description**: use the full product description from a "Product Descriptions" page/section if
        the document has one (matched by product/model code) — not a short inline description.
     5. **Serial numbers** (Asset Relationships): copy exactly as printed, preserving dashes and all
