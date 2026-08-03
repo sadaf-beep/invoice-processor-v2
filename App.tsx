@@ -338,7 +338,13 @@ const App: React.FC = () => {
     };
     setSheets((prevSheets) => [...prevSheets, newSheet]);
     setActiveSheetId(newId);
-    pushToast('success', `Created licence sheet · ${items.length} row${items.length === 1 ? '' : 's'}`, fileName);
+    if (items.length === 0) {
+      // Worth a persistent (error-styled) toast, not a quick success one —
+      // a sheet with 0 rows is easy to miss/mistake for "nothing happened".
+      pushToast('error', 'Licence sheet created with 0 rows', `${fileName} — no licence line items were found. See the sheet for details.`);
+    } else {
+      pushToast('success', `Created licence sheet · ${items.length} row${items.length === 1 ? '' : 's'}`, fileName);
+    }
   };
 
   useEffect(() => {
@@ -532,7 +538,7 @@ const App: React.FC = () => {
       {/* Main */}
       <main className="flex-1 min-h-0 overflow-hidden relative">
         {isEmpty ? (
-          <EmptyState onExtract={() => setIsPanelOpen(true)} onAddRow={handleAddRow} columns={activeSheet.columns} />
+          <EmptyState onExtract={() => setIsPanelOpen(true)} onAddRow={handleAddRow} columns={activeSheet.columns} kind={activeSheet.kind} />
         ) : (
           <Spreadsheet
             data={activeSheet.data}
