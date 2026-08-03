@@ -362,8 +362,14 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     9. **Status** must be exactly "Approved" or "Planned" — default to "Approved"; use "Planned" only
        when the document or user overrides clearly indicate the contract is a draft, unsigned, or
        otherwise not yet finalized.
-    10. **Category**: the product group or section heading from the quote (e.g. "PCR", "LED CMS-T1",
-        "GVCare SLA").
+    10. **Category** must NEVER be left blank — always populate it, using whichever of these applies:
+        if the document has actual section/product-group headings, use one of those (e.g. "PCR",
+        "LED CMS-T1", "GVCare SLA"). If it doesn't (e.g. a flat single-table PO with no groupings —
+        common in test/synthetic POs), synthesize a short, sensible category from the item's Type and
+        description instead (e.g. "Software License" for a License-type seat/subscription item, "SLA"
+        for a support/coverage item, "Extended Warranty" for a warranty-mapped item). This is
+        different from rule 3's caution against inferring dates — a category label is expected to be
+        judgement-based when the source has no explicit section structure, not left empty.
     11. Leave "Purchase Date", "PO Number", and "Invoice Number" blank ("") unless the document clearly
         states them — do not guess.
     12. Ignore line items under a "Deleted", "Cancelled", or "Voided" section — only active line items.
