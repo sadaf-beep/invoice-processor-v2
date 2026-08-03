@@ -57,11 +57,25 @@ export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoi
     4. DISAMBIGUATION: Manufacturer-labeled part number > Model #.
 
     ITEM CLASSIFICATION (Order of Operations):
-    1. LABOUR (Installation, service)
-    2. SHIPPING (Freight, delivery)
-    3. PREPAID (Software, warranties)
-    4. BULK ITEM (Passive, structural, cables, mounts)
-    5. ASSET (Active standalone electronics)
+    1. LABOUR — installation, service, engineering, travel/per-diem charges: a one-time service
+       performed, not a right to use anything and not an ongoing coverage promise.
+    2. SHIPPING — freight, delivery, logistics fees, one-time tariff/customs surcharges: a one-time
+       pass-through cost of moving goods, never a usage right or coverage promise.
+    3. PREPAID — ONLY items that are either (a) a right to USE software/a feature/a bundled
+       capability for a period or perpetually (seat/port/channel-based licenses, subscriptions,
+       site licenses, node-locked licenses, feature/capacity unlocks on hardware already owned), or
+       (b) an ongoing support/maintenance coverage promise (SLAs, Care Plans, Support Agreements,
+       TAC contracts, extended warranties — even when not literally labeled "SLA"). Tells:
+       "License," "Subscription," "Seats," "Module," "Entitlement," "SLA," "Care," "Support
+       Agreement," "Warranty," tiered response-time language ("24/7 Response," "Next Business Day
+       Replacement"). Rare exception: a physical dongle/security key whose entire purpose is
+       unlocking a software entitlement (no independent function) is still PREPAID despite shipping
+       physically. NEVER classify as PREPAID: standalone hardware, cables/connectors/rack
+       accessories, or one-time tariff/freight/installation charges just because they appear on the
+       same quote as an actual PREPAID item — those belong in ASSET, BULK ITEM, SHIPPING, or LABOUR.
+    4. BULK ITEM (Passive, structural, cables, mounts, connector packs, installation kits)
+    5. ASSET (Active standalone electronics/hardware with no bundled usage right — a licence
+       elsewhere referencing this hardware's serial number does NOT make the hardware PREPAID)
 
     Confidence Check: If classification is ambiguous, output "REVIEW_REQUIRED".
     ====================================================
@@ -286,7 +300,39 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     7. **"OPTION" sections**: items listed under an "OPTION"/"Options" section of the quote are
        optional services (labor/travel), not items to omit. Set Type to "Service", set Category to the
        section name (e.g. "OPTION | SERVICES | EVENT SUPPORT"), and include them like any other line.
-    8. **Type** must be exactly one of: License, SLA, Hardware, Service, Labor, Materials, Travel.
+    8. **Type** must be exactly one of: License, SLA, Hardware, Service, Labor, Materials, Travel —
+       use this classification guidance (drawn from real processing sessions, see
+       docs/licence-classification-reference.md for the full reference):
+       - **License** = a right to USE software/a feature/a bundled capability for a period or
+         perpetually — the commercial substance is "you may use X," not "here is a physical thing."
+         Tells: "License," "Subscription," "Seats," "Module," "Add-on," "Entitlement"; priced per
+         seat/user/port/channel/instance, or a flat annual/perpetual fee. May reference separate
+         hardware via Asset Relationships without itself being hardware (e.g. a port-expansion
+         license pointing at a chassis's serial number) — that hardware is ALWAYS its own separate
+         row, never merged into the licence row. Includes site licenses (flat fee, unlimited seats),
+         node-locked licenses, capacity/tier upgrades (e.g. "Storage Tier Upgrade, 10TB to 50TB"),
+         and feature unlocks on already-owned hardware (e.g. "Codec Pack License — H.265
+         Enablement").
+       - **SLA** = an ongoing support/maintenance COVERAGE commitment — response times, repair,
+         replacement, or update entitlement over a period. Not a usage right; a right to receive
+         support. Tells: "SLA," "Care," "Care Plan," "Support Agreement," "TAC," "Maintenance
+         Agreement," tiered (Gold/Silver/Bronze), response-time language ("24/7 Response," "Next
+         Business Day Replacement," "4-Hour Swap"). "Extended Warranty" counts as SLA even though
+         not literally labeled that — map it to SLA and add a Review Note flagging the mapping,
+         since there is no dedicated "Prepaid" Type value. If a line could be "receiving updates"
+         (SLA) or "running a new feature set" (License) and it's genuinely unclear which, add a
+         Review Note flagging it rather than guessing.
+       - **Hardware** = standalone physical equipment with no bundled usage right. A licence
+         elsewhere referencing this hardware's serial number does not make the hardware itself a
+         licence — keep them as separate rows. Exception: a physical dongle/security key whose
+         entire purpose is unlocking a software entitlement (no independent function) is License,
+         not Hardware, despite shipping physically.
+       - **Materials / Labor / Travel / Service** = one-time fees, bulk/passive items, and services
+         clearly not a usage right or coverage promise — cables, connector packs, installation kits
+         (Materials); installation/engineering labor (Labor); per-diem/travel reimbursement
+         (Travel); items under an "OPTION" section per rule 7 above (Service). One-time tariff
+         surcharges and freight/logistics fees are Materials, never License or SLA, even on the same
+         quote as real licence items.
     9. **Status** must be exactly "Approved" or "Planned" — default to "Approved"; use "Planned" only
        when the document or user overrides clearly indicate the contract is a draft, unsigned, or
        otherwise not yet finalized.

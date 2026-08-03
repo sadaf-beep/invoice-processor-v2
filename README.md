@@ -119,6 +119,12 @@ Grass Valley/GVCare renewal quotes, CapEx upgrade sheets), not just a PO with di
   with the same field rules — including mapping whatever arbitrary column headers the source file happens
   to use onto the target schema. Asset invoice uploads stay PDF/JPG/PNG only, since POs consistently arrive
   that way in practice.
+- **Classification guidance**: [`docs/licence-classification-reference.md`](docs/licence-classification-reference.md)
+  is the source of truth for how License vs. SLA vs. Hardware vs. Materials/Labor/Travel get told apart
+  (seat/port/node-locked licenses, Care Plans and Extended Warranties as SLA, the hardware-dongle edge case,
+  etc.) — condensed versions of it are baked into both extraction prompts in `lib/extractInvoice.ts`: the
+  asset extraction's PREPAID boundary, and the licence extraction's Type field. Update that doc first if the
+  classification rules need to change, then update the two prompts to match.
 
 ## Daily automation
 
