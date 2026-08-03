@@ -226,7 +226,19 @@ interface RawLicenseItem {
   'PO Number'?: string;
   'Invoice Number'?: string;
   'Review Notes'?: string;
+  // Fallback line total — used when "terms" is empty (e.g. a perpetual
+  // licence with no coverage dates) so the price isn't lost along with the
+  // dates. When terms has entries, their own "amount" values are what's used.
+  amount?: number;
   terms?: RawLicenseTerm[];
+}
+
+// A perpetual/one-time item with no coverage dates still needs to carry its
+// price somewhere — this synthesizes a single blank-dated term from the
+// item's fallback "amount" rather than silently dropping it to 0.
+function effectiveTerms(r: RawLicenseItem): RawLicenseTerm[] {
+  if (r.terms && r.terms.length > 0) return r.terms;
+  return [{ start: '', end: '', amount: r.amount ?? 0 }];
 }
 
 export async function extractLicenseItems(client: Anthropic, input: ExtractLicenseInput): Promise<ExtractLicenseResult> {
@@ -268,13 +280,17 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     object must have exactly these keys:
     "Contract Name", "Manufacturer", "Model #", "Description", "Client", "QTY", "Purchase Date",
     "Type", "Quote Number", "Asset Relationships", "Status", "Category", "PO Number",
-    "Invoice Number", "Review Notes", and "terms".
+    "Invoice Number", "Review Notes", "amount", and "terms".
 
     "terms" is an array of { "start": "MM/DD/YYYY", "end": "MM/DD/YYYY", "amount": number } — one
     entry per distinct coverage period this line item has. Most lines have exactly one term; a
     multi-year contract has one entry per year found in the document. Never collapse multiple years
     into a single term — capture every year you can find, even if a product only appears in a later
     year (e.g. an item that first appears in Year 2, not Year 1).
+
+    "amount" is this line's total price, ALWAYS populated even when "terms" is empty — it exists so
+    a perpetual or one-time item's price is never lost just because it has no coverage dates (see
+    rule 3 below).
 
     FIELD RULES:
     1. **Contract Name** is the licence name — give each distinct licence a clear, identifiable name.
@@ -285,9 +301,17 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
        reseller account — never populate with the end customer/venue name.
     3. **Term dates** (inside "terms"): use the actual per-line-item coverage Start/End dates from the
        proposal/line-item detail — never the quote preparation date or the quote's own validity date.
-       These vary by line item; do not apply one date range to everything. If there are genuinely no
-       term dates (e.g. a one-time CapEx upgrade), return "terms": [] and add a Review Note: "One-time
-       upgrade — no defined term dates."
+       These vary by line item; do not apply one date range to everything. If a line has no coverage
+       dates at all (e.g. a perpetual licence, or a one-time CapEx upgrade with no term), still
+       include exactly ONE entry in "terms" carrying that line's price (from "amount"), with "start"
+       and "end" left as empty strings — NEVER return an empty "terms" array just because dates are
+       missing, since that would silently drop the price too. Add a Review Note explaining why dates
+       are blank (e.g. "Perpetual licence — no defined term dates" or "One-time upgrade — no defined
+       term dates").
+       Only infer a term's Start/End from other dates on the document (e.g. order date, due date) as
+       a last resort when the document has no coverage dates of its own — and when you do, say
+       exactly which two dates you actually used in the Review Note (do not describe dates you
+       didn't actually use).
     4. **Description**: use the full product description from a "Product Descriptions" page/section if
        the document has one (matched by product/model code) — not a short inline description.
     5. **Serial numbers** (Asset Relationships): copy exactly as printed, preserving dashes and all
@@ -421,8 +445,7 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     // row PER YEAR, not one row with everything squashed into a single term.
     const items: InvoiceItem[] = [];
     raw.forEach((r) => {
-      const terms = r.terms && r.terms.length > 0 ? r.terms : [{ start: '', end: '', amount: 0 }];
-      terms.forEach((t) => {
+      effectiveTerms(r).forEach((t) => {
         items.push({
           ...shared(r),
           'Initial Term Start': t.start ?? '',
@@ -436,11 +459,11 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
 
   // Term-dated: one row per item, with a Term N group per year found —
   // columns are sized to whatever the widest item in this document needs.
-  const maxTerms = Math.max(1, ...raw.map((r) => r.terms?.length ?? 0));
+  const maxTerms = Math.max(1, ...raw.map((r) => effectiveTerms(r).length));
   const columns = buildTermDatedColumns(maxTerms);
   const items: InvoiceItem[] = raw.map((r) => {
     const row: InvoiceItem = { ...shared(r) };
-    const terms = r.terms ?? [];
+    const terms = effectiveTerms(r);
     for (let i = 1; i <= maxTerms; i++) {
       const t = terms[i - 1];
       row[`Term ${i} Start`] = t?.start ?? '';
