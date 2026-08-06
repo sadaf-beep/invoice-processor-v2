@@ -50,3 +50,50 @@ export const processLicenseWithClaude = async (
 
   return response.json();
 };
+
+// Messages are opaque to the client — they're just handed back to
+// /api/profile-assistant verbatim on the next turn so the server (which owns
+// the Anthropic message-shape bookkeeping) can continue the conversation.
+export type ProfileAssistantMessage = Record<string, unknown>;
+
+export interface ProfileAssistantColumn {
+  label: string;
+  type: 'string' | 'number' | 'date';
+}
+
+export interface ProfileProposal {
+  name: string;
+  columns: ProfileAssistantColumn[];
+  instructions: string;
+  licenseLayout?: 'base' | 'term-dated';
+  summaryForUser: string;
+}
+
+export interface ProfileAssistantTurnResult {
+  messages: ProfileAssistantMessage[];
+  reply: string;
+  proposal: ProfileProposal | null;
+}
+
+// Calls /api/profile-assistant — the conversational AI helper that turns a
+// client's plain-language description of their PO/licence format (or an
+// uploaded processing-skill document) into a FormatProfile proposal.
+export const runProfileAssistantTurn = async (
+  family: 'asset' | 'license',
+  messages: ProfileAssistantMessage[],
+  userMessage?: string,
+  seedDocument?: string
+): Promise<ProfileAssistantTurnResult> => {
+  const response = await fetch('/api/profile-assistant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ family, messages, userMessage, seedDocument }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `Profile assistant failed with status ${response.status}`);
+  }
+
+  return response.json();
+};
