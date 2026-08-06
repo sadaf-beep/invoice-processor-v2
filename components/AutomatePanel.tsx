@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Zap, Loader2, PlayCircle, AlertCircle, Radio } from 'lucide-react';
+import { X, Zap, Loader2, PlayCircle, Radio, Construction } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AutomatePanelProps {
@@ -137,10 +137,32 @@ export const AutomatePanel: React.FC<AutomatePanelProps> = ({ isOpen, onClose, o
               )}
 
               {!isLoading && loadError && (
-                <div className="px-3 py-2.5 rounded-lg border border-[color:var(--color-line)] bg-[color:var(--color-danger-soft)] flex items-start gap-2">
-                  <AlertCircle size={14} className="text-[color:var(--color-danger)] shrink-0 mt-0.5" />
-                  <p className="text-[11.5px] text-[color:var(--color-danger)] leading-snug break-words">{loadError}</p>
-                </div>
+                <section className="space-y-3">
+                  <div className="rounded-xl border border-dashed border-[color:var(--color-line-strong)] bg-[color:var(--color-surface-sunken)] px-4 py-5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Construction size={16} className="text-[color:var(--color-brand)]" />
+                      <h3 className="text-[13px] font-bold text-[color:var(--color-ink)]">Work in progress</h3>
+                    </div>
+                    <p className="text-[12.5px] text-[color:var(--color-ink-soft)] leading-relaxed">
+                      This panel is meant to give you a fully unattended daily scan — an on/off switch and a
+                      run-time picker right here, so the app automatically checks the inbox for new invoices
+                      every morning, extracts them, archives the PDFs and CSVs to Google Drive, and emails you
+                      a summary, with no one touching it.
+                    </p>
+                    <p className="text-[12.5px] text-[color:var(--color-ink-soft)] leading-relaxed">
+                      The on/off toggle and schedule aren't connected yet in this deployment — they need a
+                      small settings store (Supabase) that hasn't been set up here. Nothing is broken; this is
+                      expected for now.
+                    </p>
+                    <p className="text-[12.5px] text-[color:var(--color-ink-soft)] leading-relaxed">
+                      In the meantime, <strong>Run automation now</strong> below runs the real scan → extract
+                      → archive → email pipeline on demand — that part works today regardless of this panel.
+                    </p>
+                    <p className="text-[10.5px] text-[color:var(--color-ink-muted)] pt-1 border-t border-[color:var(--color-line)]">
+                      Technical detail: {loadError}
+                    </p>
+                  </div>
+                </section>
               )}
 
               {!isLoading && settings && (
