@@ -155,6 +155,27 @@ format (Asset invoice / Licence-SLA): **Default** or any saved profile.
   layout and only vary instructions + Base/Term-dated layout, since there's no concrete case yet
   needing different licence columns per client.
 
+### Building a format with AI (preview)
+
+Two entry points next to the profile picker, for people who'd rather not hand-write columns and
+instructions themselves:
+
+- **"Build a new format with AI"** opens a chat (`components/ProfileAssistantChat.tsx`) backed by
+  `api/profile-assistant.ts`. Describe the PO/licence format in plain language — the assistant asks a
+  couple of clarifying questions, then proposes a name, column list, and extraction instructions for
+  you to confirm (or ask it to revise) before it's saved as a new profile.
+- **"Upload a PO-processing skill…"** accepts a `.skill`/`.zip` bundle or a plain `.md` file. Zips are
+  unzipped client-side (`JSZip`) and every `.md` file inside (`SKILL.md` plus any reference docs) is
+  fed to the assistant as its starting context, so an existing skill (e.g. `tva-po-processing`)
+  populates a profile's fields and instructions immediately instead of needing to be described from
+  scratch.
+
+The assistant uses Claude tool-use (`propose_format`) server-side — the client only ever passes back
+the opaque conversation state plus new user text; `lib/profileAssistant.ts` owns the Anthropic
+message-shape bookkeeping (including the synthetic `tool_result` needed to continue a conversation
+after a proposal, since `propose_format` isn't a real tool call, just how a structured proposal comes
+out of an otherwise free-form chat).
+
 ## Daily automation
 
 A Vercel Cron job (`vercel.json`) hits `api/cron/daily-scan.ts` once a day at a **fixed time set in
