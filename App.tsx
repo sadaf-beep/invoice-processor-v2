@@ -12,8 +12,9 @@ import { AutomatePanel } from './components/AutomatePanel';
 import { Spreadsheet } from './components/Spreadsheet';
 import { EmptyState } from './components/EmptyState';
 import { Toaster, Toast, ToastKind } from './components/Toast';
-import { InvoiceItem, ColumnConfig, DEFAULT_COLUMNS, Sheet, DEFAULT_INSTRUCTIONS, CellStyle } from './types';
+import { InvoiceItem, ColumnConfig, Sheet, CellStyle } from './types';
 import { generateExcel, generateCSV, generateAllZip, parseCSVFile } from './services/excelService';
+import { getDefaultProfile } from './services/profileStore';
 
 interface HistoryState {
   data: InvoiceItem[];
@@ -33,9 +34,10 @@ const TYPE_FILTERS: { key: string; match: string | null }[] = [
 let toastSeq = 0;
 
 const App: React.FC = () => {
-  const [sheets, setSheets] = useState<Sheet[]>([
-    { id: '1', name: 'Sheet1', data: [], columns: DEFAULT_COLUMNS, customInstructions: DEFAULT_INSTRUCTIONS, styles: {} },
-  ]);
+  const [sheets, setSheets] = useState<Sheet[]>(() => {
+    const def = getDefaultProfile('asset');
+    return [{ id: '1', name: 'Sheet1', data: [], columns: def.columns ?? [], customInstructions: def.instructions, styles: {} }];
+  });
   const [activeSheetId, setActiveSheetId] = useState<string>('1');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isAutomatePanelOpen, setIsAutomatePanelOpen] = useState(false);
@@ -606,7 +608,8 @@ const App: React.FC = () => {
         <button
           onClick={() => {
             const newId = Date.now().toString();
-            const newSheet: Sheet = { id: newId, name: `Sheet${sheets.length + 1}`, data: [{}], columns: [...DEFAULT_COLUMNS], customInstructions: DEFAULT_INSTRUCTIONS, styles: {} };
+            const def = getDefaultProfile('asset');
+            const newSheet: Sheet = { id: newId, name: `Sheet${sheets.length + 1}`, data: [{}], columns: [...(def.columns ?? [])], customInstructions: def.instructions, styles: {} };
             setSheets([...sheets, newSheet]);
             setActiveSheetId(newId);
           }}

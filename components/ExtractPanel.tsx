@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ColumnConfig, Sheet, InvoiceItem, FormatProfile } from '../types';
 import { processInvoiceWithClaude, processLicenseWithClaude } from '../services/claudeService';
 import { scanGmailForInvoices, GmailScanMessageResult } from '../services/gmailService';
-import { listProfiles, saveProfile, deleteProfile } from '../services/profileStore';
+import { listProfiles, saveProfile, deleteProfile, getDefaultProfile, saveDefaultProfile, resetDefaultProfile, isDefaultProfileId } from '../services/profileStore';
 
 type LicenseLayout = 'base' | 'term-dated';
 
@@ -105,17 +105,18 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     setIsAddingColumn(false);
   };
 
+  // "Default" is itself a real, editable profile (reserved id) rather than a
+  // hardcoded constant — selectedProfileId is always a real id, defaulting
+  // to whichever Default profile applies to the current family.
   useEffect(() => {
     if (isOpen) setProfiles(listProfiles(docFormat));
-    setSelectedProfileId(null); // Default — switching format families never carries a profile over
+    setSelectedProfileId(getDefaultProfile(docFormat).id);
   }, [docFormat, isOpen]);
 
+  const isDefaultSelected = selectedProfileId ? isDefaultProfileId(selectedProfileId) : false;
+
   const applyProfile = (id: string) => {
-    if (id === '__default__') {
-      setSelectedProfileId(null);
-      return;
-    }
-    const profile = profiles.find((p) => p.id === id);
+    const profile = isDefaultProfileId(id) ? getDefaultProfile(docFormat) : profiles.find((p) => p.id === id);
     if (!profile) return;
     setSelectedProfileId(id);
     // Asset profiles can swap the whole column set; licence profiles keep
@@ -124,18 +125,19 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     if (profile.family === 'license' && profile.licenseLayout) setLicenseLayout(profile.licenseLayout);
   };
 
-  const startSaveProfile = () => {
-    const existing = profiles.find((p) => p.id === selectedProfileId);
-    setNewProfileName(existing?.name ?? '');
+  // Always creates a brand new named profile — this is the primary action,
+  // since the common flow is "start from Default, customize for a new
+  // client, save it as its own format" rather than overwriting Default.
+  const startSaveAsNewProfile = () => {
+    setNewProfileName('');
     setIsSavingProfile(true);
   };
 
-  const commitSaveProfile = () => {
+  const commitSaveAsNewProfile = () => {
     const name = newProfileName.trim();
     if (name) {
-      const existing = profiles.find((p) => p.id === selectedProfileId);
       const profile: FormatProfile = {
-        id: existing?.id ?? `${Date.now()}`,
+        id: `${Date.now()}`,
         name,
         family: docFormat,
         columns: docFormat === 'asset' ? activeSheet.columns : undefined,
@@ -149,14 +151,41 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     setIsSavingProfile(false);
   };
 
-  const handleDeleteProfile = () => {
-    if (!selectedProfileId) return;
+  // Secondary action — overwrites whichever format is currently selected
+  // (Default, or a named profile) in place, no new name needed.
+  const saveInPlace = () => {
+    if (isDefaultSelected) {
+      saveDefaultProfile(docFormat, {
+        columns: docFormat === 'asset' ? activeSheet.columns : undefined,
+        instructions: activeSheet.customInstructions,
+        licenseLayout: docFormat === 'license' ? licenseLayout : undefined,
+      });
+      return;
+    }
+    const existing = profiles.find((p) => p.id === selectedProfileId);
+    if (!existing) return;
+    saveProfile({
+      ...existing,
+      columns: docFormat === 'asset' ? activeSheet.columns : existing.columns,
+      instructions: activeSheet.customInstructions,
+      licenseLayout: docFormat === 'license' ? licenseLayout : existing.licenseLayout,
+    });
+    setProfiles(listProfiles(docFormat));
+  };
+
+  const handleResetOrDeleteProfile = () => {
+    if (isDefaultSelected) {
+      if (!confirm('Reset Default back to its original factory columns and instructions?')) return;
+      resetDefaultProfile(docFormat);
+      applyProfile(getDefaultProfile(docFormat).id);
+      return;
+    }
     const profile = profiles.find((p) => p.id === selectedProfileId);
     if (!profile) return;
     if (!confirm(`Delete the saved format "${profile.name}"?`)) return;
-    deleteProfile(selectedProfileId);
+    deleteProfile(profile.id);
     setProfiles(listProfiles(docFormat));
-    setSelectedProfileId(null);
+    setSelectedProfileId(getDefaultProfile(docFormat).id);
   };
 
   useEffect(() => {
@@ -426,18 +455,20 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
                   <div className="flex items-center gap-1.5">
                     <select
-                      value={selectedProfileId ?? '__default__'}
+                      value={selectedProfileId ?? getDefaultProfile(docFormat).id}
                       onChange={(e) => applyProfile(e.target.value)}
                       className="h-8 flex-1 min-w-0 px-2 rounded-md border border-[color:var(--color-line-strong)] bg-[color:var(--color-surface)] text-[12.5px] outline-none focus:border-[color:var(--color-brand)]"
                     >
-                      <option value="__default__">Default</option>
+                      <option value={getDefaultProfile(docFormat).id}>Default</option>
                       {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
-                    {selectedProfileId && (
-                      <button onClick={handleDeleteProfile} className="tbtn h-8 w-8 shrink-0" title="Delete this saved format">
-                        <Trash2 size={13} />
-                      </button>
-                    )}
+                    <button
+                      onClick={handleResetOrDeleteProfile}
+                      className="tbtn h-8 w-8 shrink-0"
+                      title={isDefaultSelected ? 'Reset Default to factory columns and instructions' : 'Delete this saved format'}
+                    >
+                      {isDefaultSelected ? <RotateCcw size={13} /> : <Trash2 size={13} />}
+                    </button>
                   </div>
 
                   {isSavingProfile ? (
@@ -449,24 +480,31 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                         onChange={(e) => setNewProfileName(e.target.value)}
                         onFocus={(e) => e.currentTarget.select()}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitSaveProfile();
+                          if (e.key === 'Enter') commitSaveAsNewProfile();
                           if (e.key === 'Escape') setIsSavingProfile(false);
                         }}
                         placeholder="e.g. TVA Pedido"
                         className="h-8 flex-1 min-w-0 px-2 rounded-md border border-[color:var(--color-brand)] bg-[color:var(--color-surface)] text-[12.5px] outline-none"
                       />
-                      <button onClick={commitSaveProfile} className="h-8 px-2.5 rounded-md text-[12px] font-semibold text-white shrink-0" style={{ background: 'var(--color-brand)' }}>
+                      <button onClick={commitSaveAsNewProfile} className="h-8 px-2.5 rounded-md text-[12px] font-semibold text-white shrink-0" style={{ background: 'var(--color-brand)' }}>
                         Save
                       </button>
                       <button onClick={() => setIsSavingProfile(false)} className="tbtn h-8 w-8 shrink-0"><X size={13} /></button>
                     </div>
                   ) : (
-                    <button onClick={startSaveProfile} className="rchip hover:border-[color:var(--color-brand)] hover:text-[color:var(--color-brand)] transition-colors">
-                      <Save size={11} /> {selectedProfileId ? 'Update' : 'Save'} current as reusable format…
-                    </button>
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      <button onClick={startSaveAsNewProfile} className="rchip hover:border-[color:var(--color-brand)] hover:text-[color:var(--color-brand)] transition-colors">
+                        <Save size={11} /> Save as new format…
+                      </button>
+                      <button onClick={saveInPlace} className="rchip hover:border-[color:var(--color-brand)] hover:text-[color:var(--color-brand)] transition-colors">
+                        <Save size={11} /> {isDefaultSelected ? 'Save changes to Default' : 'Update this format'}
+                      </button>
+                    </div>
                   )}
                   <p className="text-[11px] text-[color:var(--color-ink-muted)]">
-                    {docFormat === 'asset'
+                    {isDefaultSelected
+                      ? 'Default itself is editable — add/rename columns or write instructions below. "Save as new format" starts a client-specific copy; "Save changes to Default" updates the baseline every new sheet starts from.'
+                      : docFormat === 'asset'
                       ? "Saves this sheet's columns and instructions under a name — e.g. a client whose PO uses different fields (like TVA's Spanish-language Pedido format)."
                       : "Saves this layout choice and instructions under a name for a client whose licence format needs different handling."}
                     {' '}Stored in this browser only.
