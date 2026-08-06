@@ -126,6 +126,28 @@ Grass Valley/GVCare renewal quotes, CapEx upgrade sheets), not just a PO with di
   asset extraction's PREPAID boundary, and the licence extraction's Type field. Update that doc first if the
   classification rules need to change, then update the two prompts to match.
 
+## Saved client formats (profiles)
+
+**Status: preview branch (`feature/format-profiles`), not yet merged to `main`.**
+
+Different clients' documents can need different columns and rules — e.g. TVA's Spanish-language
+Pedido POs use entirely different field labels than the default asset schema. Rather than rebuilding
+columns/instructions by hand every time, the Extract panel's Format section has a picker under each
+format (Asset invoice / Licence-SLA): **Default** (today's built-in behavior, always the pre-selected
+option — unchanged) or any saved profile.
+
+- **Save current as reusable format…** captures the active sheet's columns + instructions (asset) or
+  the licence layout + instructions (licence) under a name, and re-selecting that name later
+  pre-loads them again — same underlying mechanism as the existing per-sheet columns/instructions,
+  just named and persisted instead of rebuilt from scratch each time.
+- **Storage: `localStorage` only** (`services/profileStore.ts`, key `invoiceintel.formatProfiles.v1`)
+  — no server, no sync across browsers/devices/teammates. This is a deliberate v1 tradeoff to ship
+  without new infrastructure while Supabase setup is deferred; move this to a shared store later if
+  profiles need to be visible across a team.
+- Asset profiles can swap the whole column schema; licence profiles keep the standard Beam column
+  layout and only vary instructions + Base/Term-dated layout, since there's no concrete case yet
+  needing different licence columns per client.
+
 ## Daily automation
 
 A Vercel Cron job (`vercel.json`) hits `api/cron/daily-scan.ts` once a day at a **fixed time set in

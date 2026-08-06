@@ -33,6 +33,22 @@ export interface Sheet {
   kind?: 'asset' | 'license'; // absent/undefined is treated as 'asset' for backward compatibility
 }
 
+// A named, reusable client-specific processing setup — saved so it can be
+// picked from a dropdown instead of rebuilding columns/instructions by hand
+// every time. Stored in localStorage (see services/profileStore.ts), not on
+// the server — this is a per-browser convenience, not a synced/shared list.
+export interface FormatProfile {
+  id: string;
+  name: string;
+  family: 'asset' | 'license';
+  // Asset profiles can swap the whole column schema (e.g. TVA's Spanish
+  // fields); licence profiles reuse the standard Beam column layout and
+  // only vary instructions + layout, so columns is asset-only.
+  columns?: ColumnConfig[];
+  instructions: string;
+  licenseLayout?: 'base' | 'term-dated';
+}
+
 export const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: "Status", label: "Status", type: 'string', required: true },
   { id: "Manufacturer", label: "Manufacturer", type: 'string', required: true },

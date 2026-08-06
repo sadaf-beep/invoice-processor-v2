@@ -2,11 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   X, UploadCloud, FileText, Bot, RotateCcw,
   CheckCircle2, AlertCircle, Loader2, Sparkles, Mail, MailX, Plus, Scale,
+  Save, Trash2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ColumnConfig, Sheet, InvoiceItem } from '../types';
+import { ColumnConfig, Sheet, InvoiceItem, FormatProfile } from '../types';
 import { processInvoiceWithClaude, processLicenseWithClaude } from '../services/claudeService';
 import { scanGmailForInvoices, GmailScanMessageResult } from '../services/gmailService';
+import { listProfiles, saveProfile, deleteProfile } from '../services/profileStore';
 
 type LicenseLayout = 'base' | 'term-dated';
 
@@ -55,6 +57,13 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
   const [docFormat, setDocFormat] = useState<'asset' | 'license'>('asset');
   const [licenseLayout, setLicenseLayout] = useState<LicenseLayout>('base');
+
+  // Saved client-specific formats (localStorage) — Default (no id) is always
+  // the pre-selected option and never touches saved data.
+  const [profiles, setProfiles] = useState<FormatProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
   // Set while the extraction loop is paused waiting on the user to review
   // and approve the PREPAID-classified candidates for one file. PREPAID
   // rows always stay in the asset sheet regardless — this only decides
@@ -94,6 +103,60 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
       onConfigChange([...activeSheet.columns, newCol], activeSheet.customInstructions);
     }
     setIsAddingColumn(false);
+  };
+
+  useEffect(() => {
+    if (isOpen) setProfiles(listProfiles(docFormat));
+    setSelectedProfileId(null); // Default — switching format families never carries a profile over
+  }, [docFormat, isOpen]);
+
+  const applyProfile = (id: string) => {
+    if (id === '__default__') {
+      setSelectedProfileId(null);
+      return;
+    }
+    const profile = profiles.find((p) => p.id === id);
+    if (!profile) return;
+    setSelectedProfileId(id);
+    // Asset profiles can swap the whole column set; licence profiles keep
+    // the standard columns and only vary instructions + layout.
+    onConfigChange(profile.family === 'asset' && profile.columns ? profile.columns : activeSheet.columns, profile.instructions);
+    if (profile.family === 'license' && profile.licenseLayout) setLicenseLayout(profile.licenseLayout);
+  };
+
+  const startSaveProfile = () => {
+    const existing = profiles.find((p) => p.id === selectedProfileId);
+    setNewProfileName(existing?.name ?? '');
+    setIsSavingProfile(true);
+  };
+
+  const commitSaveProfile = () => {
+    const name = newProfileName.trim();
+    if (name) {
+      const existing = profiles.find((p) => p.id === selectedProfileId);
+      const profile: FormatProfile = {
+        id: existing?.id ?? `${Date.now()}`,
+        name,
+        family: docFormat,
+        columns: docFormat === 'asset' ? activeSheet.columns : undefined,
+        instructions: activeSheet.customInstructions,
+        licenseLayout: docFormat === 'license' ? licenseLayout : undefined,
+      };
+      saveProfile(profile);
+      setProfiles(listProfiles(docFormat));
+      setSelectedProfileId(profile.id);
+    }
+    setIsSavingProfile(false);
+  };
+
+  const handleDeleteProfile = () => {
+    if (!selectedProfileId) return;
+    const profile = profiles.find((p) => p.id === selectedProfileId);
+    if (!profile) return;
+    if (!confirm(`Delete the saved format "${profile.name}"?`)) return;
+    deleteProfile(selectedProfileId);
+    setProfiles(listProfiles(docFormat));
+    setSelectedProfileId(null);
   };
 
   useEffect(() => {
@@ -360,6 +423,55 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                       <Scale size={13} /> Licence / SLA
                     </button>
                   </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={selectedProfileId ?? '__default__'}
+                      onChange={(e) => applyProfile(e.target.value)}
+                      className="h-8 flex-1 min-w-0 px-2 rounded-md border border-[color:var(--color-line-strong)] bg-[color:var(--color-surface)] text-[12.5px] outline-none focus:border-[color:var(--color-brand)]"
+                    >
+                      <option value="__default__">Default</option>
+                      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    {selectedProfileId && (
+                      <button onClick={handleDeleteProfile} className="tbtn h-8 w-8 shrink-0" title="Delete this saved format">
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {isSavingProfile ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={newProfileName}
+                        onChange={(e) => setNewProfileName(e.target.value)}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitSaveProfile();
+                          if (e.key === 'Escape') setIsSavingProfile(false);
+                        }}
+                        placeholder="e.g. TVA Pedido"
+                        className="h-8 flex-1 min-w-0 px-2 rounded-md border border-[color:var(--color-brand)] bg-[color:var(--color-surface)] text-[12.5px] outline-none"
+                      />
+                      <button onClick={commitSaveProfile} className="h-8 px-2.5 rounded-md text-[12px] font-semibold text-white shrink-0" style={{ background: 'var(--color-brand)' }}>
+                        Save
+                      </button>
+                      <button onClick={() => setIsSavingProfile(false)} className="tbtn h-8 w-8 shrink-0"><X size={13} /></button>
+                    </div>
+                  ) : (
+                    <button onClick={startSaveProfile} className="rchip hover:border-[color:var(--color-brand)] hover:text-[color:var(--color-brand)] transition-colors">
+                      <Save size={11} /> {selectedProfileId ? 'Update' : 'Save'} current as reusable format…
+                    </button>
+                  )}
+                  <p className="text-[11px] text-[color:var(--color-ink-muted)]">
+                    {docFormat === 'asset'
+                      ? "Saves this sheet's columns and instructions under a name — e.g. a client whose PO uses different fields (like TVA's Spanish-language Pedido format)."
+                      : "Saves this layout choice and instructions under a name for a client whose licence format needs different handling."}
+                    {' '}Stored in this browser only.
+                  </p>
+
                   {docFormat === 'license' && (
                     <>
                       <div className="flex items-center gap-1.5">
