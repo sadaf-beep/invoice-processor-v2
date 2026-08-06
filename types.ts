@@ -64,6 +64,50 @@ export const DEFAULT_COLUMNS: ColumnConfig[] = [
 
 export const DEFAULT_INSTRUCTIONS = ``;
 
+// Built-in format for TVA's Spanish-language "Pedido" POs — from the
+// tva-po-processing skill. Column order matches that skill's CSV header
+// exactly (English base-format fields + Spanish new fields).
+export const TVA_PO_COLUMNS: ColumnConfig[] = [
+  { id: 'Orden de Compra', label: 'Orden de Compra', type: 'string', required: true },
+  { id: 'Companies', label: 'Companies', type: 'string', required: true },
+  { id: 'Nº solicitud de compra', label: 'Nº solicitud de compra', type: 'string', required: false },
+  { id: 'Product Name', label: 'Product Name', type: 'string', required: true },
+  { id: 'Manufacturer', label: 'Manufacturer', type: 'string', required: false },
+  { id: 'Model #', label: 'Model #', type: 'string', required: false },
+  { id: 'Quantity', label: 'Quantity', type: 'number', required: false },
+  { id: 'Purchase Date', label: 'Purchase Date', type: 'date', required: false },
+  { id: 'Purchase Price', label: 'Purchase Price', type: 'number', required: false },
+  { id: 'Impuestos', label: 'Impuestos', type: 'number', required: false },
+  { id: 'Importe', label: 'Importe', type: 'number', required: false },
+  { id: 'Item Type', label: 'Item Type', type: 'string', required: true },
+  { id: 'Serial #', label: 'Serial #', type: 'string', required: false },
+];
+
+export const TVA_PO_INSTRUCTIONS = `These are TVA Purchase Orders (Pedidos) — Spanish-language PDFs identified by field labels like "Nº DE PEDIDO", "PROVEEDOR", "Nº solicitud de compra", and "DETALLES DE ARTÍCULO EN LÍNEA". Match on these Spanish field labels and the single-vs-multi-article structure, NOT on letterhead or vendor branding ("Grupo Salinas" is incidental, not defining — vendor names vary PO to PO). Treat structural descriptions as patterns, not guarantees; when a PO doesn't match the expected layout, read it on its own terms, map what's printed to the closest column, leave genuinely missing fields blank, and flag anything ambiguous rather than force-fitting.
+
+OUTPUT ONE JSON OBJECT PER LINE ITEM. A single PO routinely bundles many line items (equipment, spare parts, service/licence payments) under one PO number — each gets its own object with the same PO number repeated. Never split one PO across multiple PO numbers and never merge two POs into one row. The Quantity field already carries the quantity printed on the PO — do NOT create multiple JSON objects for one line just because Quantity > 1.
+
+Field-by-field:
+- Orden de Compra: the bold "Nº DE PEDIDO" heading at the top of the doc (e.g. 4501544625). Distinct from Nº solicitud de compra — never conflate them.
+- Companies: the "PROVEEDOR:" block (vendor name). Vendor names vary per PO.
+- Nº solicitud de compra: the purchase request number, e.g. "Nº solicitud de compra: PR2152516" — a DIFFERENT number from Orden de Compra.
+- Product Name: the full/complete description line ("Descripción completa") under each item table, NOT the truncated table cell.
+- Manufacturer: infer from the description. Leave blank if not confidently inferable — do not guess.
+- Model #: the "NÚMERO DE PIEZA" (part number) from the item table, as printed (e.g. ARTIST-1024, RSP-1232HL).
+- Quantity: the "CTD." (Cantidad) value from the item table, as printed. Record once per line — never split into multiple rows.
+- Purchase Date: from the line-item "FECHA PARA LA QUE SE REQUIERE", NOT the header's "Emitido el..." issue date. TVA dates are day-first (dd/mm/yyyy, Mexican convention) — CONVERT to MM/DD/YYYY, don't just reformat the slashes. When spelled out (e.g. "lunes, 30 junio, 2025"), parse day/month names directly (→ 06/30/2025). When numeric (e.g. 11/06/2025 = 11 June), convert to 06/11/2025. Double-check any date where the day ≤ 12, since those look valid in either format — always resolve against the source, never guess.
+- Purchase Price: the "PRECIO POR UNIDAD" (unit price, before discount) from the item table. Plain number only — no currency symbol or suffix.
+- Impuestos: the tax amount from the IMPUESTOS column / IVA breakdown table below the item (commonly 16.0% IVA Acreditable, but confirm the rate/label printed rather than assuming). Plain number only — no currency symbol or suffix.
+- Importe: the line total (net + tax) from the rightmost IMPORTE column. Plain number only — no currency symbol or suffix.
+- Item Type: classify using the standard 6-tier waterfall (LABOUR → SHIPPING → PREPAID → BULK ITEM → ASSET → UNKNOWN/REVIEW_REQUIRED). TVA procures far more than broadcast gear — IT hardware, furniture, office supplies, construction materials, services, software — apply the waterfall to whatever shows up.
+- Serial #: ALWAYS leave blank at entry. Filled only on physical receipt, ASSET rows only.
+
+Do NOT add a Status column — deliberately removed from this format; receipt tracking relies on Serial # being filled for ASSET rows. Do NOT capture the header issue date ("Emitido el..."), Importe Total, Moneda/currency, Facturar A / Entregar A, Cuenta CG (GL account), Centro de Costos, Título, Solicitante, Términos de Pago, Línea #, Descuento, Importe Neto, Días de Garantía, or Original Req ID as their own fields — these are context only, not columns in this format.
+
+Currency: TVA POs are issued in MXN or USD (see the suffix on Importe Total); other currencies may appear. Purchase Price/Impuestos/Importe must always be plain numeric values regardless of which currency the PO is in — never embed the currency symbol or code in the number itself.
+
+Validation: no line item should be missing Orden de Compra, Product Name, Importe, or Item Type.`;
+
 // Column layout for the licence-processing "base" format — see the
 // licence-processing skill for the full rules behind each field. Order
 // matters: buildTermDatedColumns() below splices term columns in at the

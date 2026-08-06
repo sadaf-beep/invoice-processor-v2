@@ -128,8 +128,6 @@ Grass Valley/GVCare renewal quotes, CapEx upgrade sheets), not just a PO with di
 
 ## Saved client formats (profiles)
 
-**Status: preview branch (`feature/format-profiles`), not yet merged to `main`.**
-
 Different clients' documents can need different columns and rules — e.g. TVA's Spanish-language
 Pedido POs use entirely different field labels than the default asset schema. Rather than rebuilding
 columns/instructions by hand every time, the Extract panel's Format section has a picker under each
@@ -155,7 +153,25 @@ format (Asset invoice / Licence-SLA): **Default** or any saved profile.
   layout and only vary instructions + Base/Term-dated layout, since there's no concrete case yet
   needing different licence columns per client.
 
-### Building a format with AI (preview)
+### Built-in profiles (ship with the app, not stored in `localStorage`)
+
+Some client formats are common enough to bake into the app itself, so they show up in the picker
+on every browser without ever having to be built or uploaded first. Defined in
+`services/profileStore.ts` (`BUILTIN_PROFILES`), sourced from `types.ts` constants:
+
+- **TVA PO Processing** — TVA's Spanish-language "Pedido" PO format (`TVA_PO_COLUMNS` /
+  `TVA_PO_INSTRUCTIONS`, encoding the `tva-po-processing` skill's field mapping, date-flip rule,
+  and one-row-per-line-item behavior).
+
+Built-ins work exactly like Default: selecting one and editing columns/instructions is normal;
+**"Update this format"** persists that edit to `localStorage` (same mechanism as any saved
+profile — an override keyed by the built-in's reserved id), and the reset button clears the
+override and falls back to the shipped version. A built-in can never actually disappear from the
+picker, even after a "delete" — there's nothing to delete, only an override to clear. To add
+another one, add a `{columns, instructions}` pair to `types.ts` and one entry to
+`BUILTIN_PROFILES`.
+
+### Building a format with AI
 
 Two entry points next to the profile picker, for people who'd rather not hand-write columns and
 instructions themselves:

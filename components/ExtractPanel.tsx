@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ColumnConfig, Sheet, InvoiceItem, FormatProfile } from '../types';
 import { processInvoiceWithClaude, processLicenseWithClaude, ProfileProposal } from '../services/claudeService';
 import { scanGmailForInvoices, GmailScanMessageResult } from '../services/gmailService';
-import { listProfiles, saveProfile, deleteProfile, getDefaultProfile, saveDefaultProfile, resetDefaultProfile, isDefaultProfileId } from '../services/profileStore';
+import { listProfiles, saveProfile, deleteProfile, getDefaultProfile, saveDefaultProfile, resetDefaultProfile, resetBuiltinProfile, isDefaultProfileId, isBuiltinProfileId, isReservedProfileId } from '../services/profileStore';
 import { ProfileAssistantChat } from './ProfileAssistantChat';
 
 type LicenseLayout = 'base' | 'term-dated';
@@ -137,6 +137,10 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
   }, [docFormat, isOpen]);
 
   const isDefaultSelected = selectedProfileId ? isDefaultProfileId(selectedProfileId) : false;
+  // Built-in profiles (e.g. TVA PO Processing) ship with the app and can
+  // never actually disappear — like Default, they get a reset affordance
+  // instead of a delete.
+  const isReservedSelected = selectedProfileId ? isReservedProfileId(selectedProfileId) : false;
 
   const applyProfile = (id: string) => {
     const profile = isDefaultProfileId(id) ? getDefaultProfile(docFormat) : profiles.find((p) => p.id === id);
@@ -205,6 +209,21 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     }
     const profile = profiles.find((p) => p.id === selectedProfileId);
     if (!profile) return;
+    if (isBuiltinProfileId(profile.id)) {
+      if (!confirm(`Reset "${profile.name}" back to its original built-in columns and instructions?`)) return;
+      resetBuiltinProfile(profile.id);
+      // Resolve from a fresh list, not the `profiles` state closure — that
+      // still holds the pre-reset (customized) entry until the next render.
+      const freshProfiles = listProfiles(docFormat);
+      setProfiles(freshProfiles);
+      const resetProfile = freshProfiles.find((p) => p.id === profile.id);
+      if (resetProfile) {
+        setSelectedProfileId(resetProfile.id);
+        onConfigChange(resetProfile.family === 'asset' && resetProfile.columns ? resetProfile.columns : activeSheet.columns, resetProfile.instructions);
+        if (resetProfile.family === 'license' && resetProfile.licenseLayout) setLicenseLayout(resetProfile.licenseLayout);
+      }
+      return;
+    }
     if (!confirm(`Delete the saved format "${profile.name}"?`)) return;
     deleteProfile(profile.id);
     setProfiles(listProfiles(docFormat));
@@ -523,9 +542,9 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                     <button
                       onClick={handleResetOrDeleteProfile}
                       className="tbtn h-8 w-8 shrink-0"
-                      title={isDefaultSelected ? 'Reset Default to factory columns and instructions' : 'Delete this saved format'}
+                      title={isReservedSelected ? 'Reset to factory columns and instructions' : 'Delete this saved format'}
                     >
-                      {isDefaultSelected ? <RotateCcw size={13} /> : <Trash2 size={13} />}
+                      {isReservedSelected ? <RotateCcw size={13} /> : <Trash2 size={13} />}
                     </button>
                   </div>
 
@@ -562,10 +581,12 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                   <p className="text-[11px] text-[color:var(--color-ink-muted)]">
                     {isDefaultSelected
                       ? 'Default itself is editable — add/rename columns or write instructions below. "Save as new format" starts a client-specific copy; "Save changes to Default" updates the baseline every new sheet starts from.'
+                      : isReservedSelected
+                      ? 'This is a built-in format that ships with the app, on every browser — editable the same way as any other. "Update this format" saves your edit; the reset button restores the version it shipped with.'
                       : docFormat === 'asset'
-                      ? "Saves this sheet's columns and instructions under a name — e.g. a client whose PO uses different fields (like TVA's Spanish-language Pedido format)."
+                      ? "Saves this sheet's columns and instructions under a name — e.g. a client whose PO uses different fields."
                       : "Saves this layout choice and instructions under a name for a client whose licence format needs different handling."}
-                    {' '}Stored in this browser only.
+                    {' '}{isReservedSelected ? '' : 'Stored in this browser only.'}
                   </p>
 
                   <div className="flex flex-wrap gap-1.5 items-center pt-0.5">
