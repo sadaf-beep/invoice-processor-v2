@@ -45,6 +45,30 @@ function parseJsonArrayResponse<T>(rawText: string): T[] {
   );
 }
 
+// A column typed 'number' must hold a number, no matter what the extraction
+// instructions asked Claude to do with it — e.g. a "record amounts exactly
+// as printed" rule can lead Claude to include a currency symbol/suffix
+// ("$3,129.21MXN") in what's supposed to be a plain numeric cell, which
+// would otherwise silently turn that column to text (breaking sort/totals
+// in the sheet). Strip everything but digits, a leading minus, and the
+// decimal point before parsing; unparsable leftovers fall back to 0.
+function coerceNumericColumns(items: InvoiceItem[], columns: ColumnConfig[]): InvoiceItem[] {
+  const numericLabels = columns.filter((c) => c.type === 'number').map((c) => c.label);
+  if (numericLabels.length === 0) return items;
+
+  return items.map((item) => {
+    const coerced = { ...item };
+    for (const label of numericLabels) {
+      const value = coerced[label];
+      if (typeof value === 'string') {
+        const cleaned = value.replace(/[^0-9.-]/g, '');
+        coerced[label] = cleaned === '' ? 0 : Number(cleaned) || 0;
+      }
+    }
+    return coerced;
+  });
+}
+
 export interface ExtractInvoiceInput {
   base64Data: string;
   mimeType: string;
@@ -182,7 +206,7 @@ export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoi
     }
   });
 
-  return expandedData;
+  return coerceNumericColumns(expandedData, columns);
 }
 
 // --- Licence / support-agreement extraction -------------------------------
@@ -479,7 +503,7 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
         });
       });
     });
-    return { items, columns: LICENSE_BASE_COLUMNS };
+    return { items: coerceNumericColumns(items, LICENSE_BASE_COLUMNS), columns: LICENSE_BASE_COLUMNS };
   }
 
   // Term-dated: one row per item, with a Term N group per year found —
@@ -498,5 +522,5 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     return row;
   });
 
-  return { items, columns };
+  return { items: coerceNumericColumns(items, columns), columns };
 }
