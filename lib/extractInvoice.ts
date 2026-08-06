@@ -161,16 +161,21 @@ export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoi
 
   const expandedData: InvoiceItem[] = [];
 
-  // Row expansion logic — flatten "Quantity: N" into N individual rows
+  // If the sheet's own schema has a Quantity column, that column is the
+  // record of how many units the line covers — keep one row per line item.
+  // Only the default schema (no Quantity column) expands "Quantity: N" into
+  // N individual rows, one unit each.
   const userAskedForQuantity = columns.some((c) => c.label.toLowerCase() === 'quantity');
 
   rawData.forEach((item) => {
-    const qty = item.Quantity && item.Quantity > 0 ? item.Quantity : 1;
-
-    const outputItem = { ...item };
-    if (!userAskedForQuantity) {
-      delete outputItem.Quantity;
+    if (userAskedForQuantity) {
+      expandedData.push({ ...item });
+      return;
     }
+
+    const qty = item.Quantity && item.Quantity > 0 ? item.Quantity : 1;
+    const outputItem = { ...item };
+    delete outputItem.Quantity;
 
     for (let i = 0; i < qty; i++) {
       expandedData.push(outputItem);
