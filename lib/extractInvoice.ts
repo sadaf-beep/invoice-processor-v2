@@ -9,6 +9,42 @@ interface RawInvoiceItem extends InvoiceItem {
 
 const MODEL = 'claude-opus-4-8';
 
+// Claude is told to return a raw JSON array, but with a large/complex
+// document or custom instructions it sometimes wraps the array in a code
+// fence or adds a sentence of commentary before/after it despite that
+// instruction. Strip fences, then fall back to the outermost [...] slice
+// before giving up — and when parsing still fails, surface a snippet of
+// what Claude actually said instead of a bare "not valid JSON" with no way
+// to diagnose it.
+function parseJsonArrayResponse<T>(rawText: string): T[] {
+  const withoutFences = rawText
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
+  try {
+    return JSON.parse(withoutFences);
+  } catch {
+    // fall through to the bracket-slice attempt below
+  }
+
+  const start = withoutFences.indexOf('[');
+  const end = withoutFences.lastIndexOf(']');
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(withoutFences.slice(start, end + 1));
+    } catch {
+      // fall through to the error below
+    }
+  }
+
+  const snippet = withoutFences.slice(0, 300);
+  throw new Error(
+    `Claude returned a response that was not valid JSON. What it actually said: ${snippet}${withoutFences.length > 300 ? '…' : ''}`
+  );
+}
+
 export interface ExtractInvoiceInput {
   base64Data: string;
   mimeType: string;
@@ -121,20 +157,7 @@ export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoi
     throw new Error('No text response from Claude.');
   }
 
-  // Claude sometimes wraps the JSON in a markdown code fence despite being
-  // told not to — strip it before parsing.
-  const cleanedText = textBlock.text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```\s*$/i, '')
-    .trim();
-
-  let rawData: RawInvoiceItem[];
-  try {
-    rawData = JSON.parse(cleanedText);
-  } catch {
-    throw new Error('Claude returned a response that was not valid JSON.');
-  }
+  const rawData = parseJsonArrayResponse<RawInvoiceItem>(textBlock.text);
 
   const expandedData: InvoiceItem[] = [];
 
@@ -417,18 +440,7 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     throw new Error('No text response from Claude.');
   }
 
-  const cleanedText = textBlock.text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```\s*$/i, '')
-    .trim();
-
-  let raw: RawLicenseItem[];
-  try {
-    raw = JSON.parse(cleanedText);
-  } catch {
-    throw new Error('Claude returned a response that was not valid JSON.');
-  }
+  const raw = parseJsonArrayResponse<RawLicenseItem>(textBlock.text);
 
   const shared = (r: RawLicenseItem) => ({
     'Contract Name': r['Contract Name'] ?? '',
