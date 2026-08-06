@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
+import JSZip from 'jszip';
 import {
   X, UploadCloud, FileText, Bot, RotateCcw,
   CheckCircle2, AlertCircle, Loader2, Sparkles, Mail, MailX, Plus, Scale,
-  Save, Trash2,
+  Save, Trash2, FileUp,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ColumnConfig, Sheet, InvoiceItem, FormatProfile } from '../types';
-import { processInvoiceWithClaude, processLicenseWithClaude } from '../services/claudeService';
+import { processInvoiceWithClaude, processLicenseWithClaude, ProfileProposal } from '../services/claudeService';
 import { scanGmailForInvoices, GmailScanMessageResult } from '../services/gmailService';
 import { listProfiles, saveProfile, deleteProfile, getDefaultProfile, saveDefaultProfile, resetDefaultProfile, isDefaultProfileId } from '../services/profileStore';
+import { ProfileAssistantChat } from './ProfileAssistantChat';
 
 type LicenseLayout = 'base' | 'term-dated';
 
@@ -46,6 +48,22 @@ const cleanErr = (e: unknown): string => {
   return s || 'Something went wrong.';
 };
 
+// Reads a plain .md file as-is, or unzips a .skill/.zip bundle and
+// concatenates every .md file inside it (SKILL.md plus any reference docs)
+// — that's the text handed to the profile assistant as its seed document.
+async function readSeedDocument(file: File): Promise<string> {
+  const isZip = /\.(skill|zip)$/i.test(file.name) || file.type === 'application/zip';
+  if (!isZip) return file.text();
+
+  const zip = await JSZip.loadAsync(file);
+  const mdEntries = Object.values(zip.files).filter((f) => !f.dir && /\.md$/i.test(f.name));
+  if (mdEntries.length === 0) throw new Error('No .md file found inside this skill bundle.');
+  const sections = await Promise.all(
+    mdEntries.map(async (f) => `# ${f.name}\n\n${await f.async('text')}`)
+  );
+  return sections.join('\n\n---\n\n');
+}
+
 
 export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onDataReady, onLicenseDataReady, onConfigChange, onError, activeSheet, pendingFiles, onPendingFilesConsumed }) => {
   const [files, setFiles] = useState<File[]>([]);
@@ -64,6 +82,11 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
+  // AI-assisted format builder (preview) — either a blank conversational
+  // chat, or seeded from an uploaded processing-skill document (.skill/.zip/.md).
+  const [aiChat, setAiChat] = useState<{ seedDocument?: string; seedLabel?: string } | null>(null);
+  const [skillUploadError, setSkillUploadError] = useState<string | null>(null);
+  const skillFileInputRef = useRef<HTMLInputElement>(null);
   // Set while the extraction loop is paused waiting on the user to review
   // and approve the PREPAID-classified candidates for one file. PREPAID
   // rows always stay in the asset sheet regardless — this only decides
@@ -186,6 +209,41 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     deleteProfile(profile.id);
     setProfiles(listProfiles(docFormat));
     setSelectedProfileId(getDefaultProfile(docFormat).id);
+  };
+
+  const handleSkillFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setSkillUploadError(null);
+    try {
+      const seedDocument = await readSeedDocument(file);
+      setAiChat({ seedDocument, seedLabel: file.name });
+    } catch (err) {
+      setSkillUploadError(cleanErr(err));
+    }
+  };
+
+  // The AI proposal only carries columns + instructions (+ layout for
+  // licence) — apply it to the active sheet immediately (same as picking a
+  // saved profile) and save it under its own name for reuse later.
+  const handleAiProfileSaved = (proposal: ProfileProposal) => {
+    const profile: FormatProfile = {
+      id: `${Date.now()}`,
+      name: proposal.name,
+      family: docFormat,
+      columns: docFormat === 'asset'
+        ? proposal.columns.map((c) => ({ id: c.label, label: c.label, type: c.type, required: false }))
+        : undefined,
+      instructions: proposal.instructions,
+      licenseLayout: docFormat === 'license' ? (proposal.licenseLayout ?? licenseLayout) : undefined,
+    };
+    saveProfile(profile);
+    setProfiles(listProfiles(docFormat));
+    setSelectedProfileId(profile.id);
+    onConfigChange(profile.family === 'asset' && profile.columns ? profile.columns : activeSheet.columns, profile.instructions);
+    if (profile.family === 'license' && profile.licenseLayout) setLicenseLayout(profile.licenseLayout);
+    setAiChat(null);
   };
 
   useEffect(() => {
@@ -509,6 +567,31 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                       : "Saves this layout choice and instructions under a name for a client whose licence format needs different handling."}
                     {' '}Stored in this browser only.
                   </p>
+
+                  <div className="flex flex-wrap gap-1.5 items-center pt-0.5">
+                    <button
+                      onClick={() => { setSkillUploadError(null); setAiChat({}); }}
+                      className="rchip hover:border-[color:var(--color-brand)] hover:text-[color:var(--color-brand)] transition-colors"
+                    >
+                      <Sparkles size={11} /> Build a new format with AI
+                    </button>
+                    <button
+                      onClick={() => skillFileInputRef.current?.click()}
+                      className="rchip hover:border-[color:var(--color-brand)] hover:text-[color:var(--color-brand)] transition-colors"
+                    >
+                      <FileUp size={11} /> Upload a PO-processing skill…
+                    </button>
+                    <input
+                      ref={skillFileInputRef}
+                      type="file"
+                      accept=".skill,.zip,.md"
+                      className="hidden"
+                      onChange={handleSkillFileChange}
+                    />
+                  </div>
+                  {skillUploadError && (
+                    <p className="text-[11px] text-[color:var(--color-danger)] leading-snug">{skillUploadError}</p>
+                  )}
 
                   {docFormat === 'license' && (
                     <>
@@ -868,6 +951,16 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
               </div>
             </div>
           </motion.div>
+
+          {aiChat && (
+            <ProfileAssistantChat
+              family={docFormat}
+              seedDocument={aiChat.seedDocument}
+              seedLabel={aiChat.seedLabel}
+              onClose={() => setAiChat(null)}
+              onSaved={handleAiProfileSaved}
+            />
+          )}
         </>
       )}
     </AnimatePresence>
