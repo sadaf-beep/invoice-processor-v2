@@ -133,13 +133,20 @@ Grass Valley/GVCare renewal quotes, CapEx upgrade sheets), not just a PO with di
 Different clients' documents can need different columns and rules — e.g. TVA's Spanish-language
 Pedido POs use entirely different field labels than the default asset schema. Rather than rebuilding
 columns/instructions by hand every time, the Extract panel's Format section has a picker under each
-format (Asset invoice / Licence-SLA): **Default** (today's built-in behavior, always the pre-selected
-option — unchanged) or any saved profile.
+format (Asset invoice / Licence-SLA): **Default** or any saved profile.
 
-- **Save current as reusable format…** captures the active sheet's columns + instructions (asset) or
-  the licence layout + instructions (licence) under a name, and re-selecting that name later
-  pre-loads them again — same underlying mechanism as the existing per-sheet columns/instructions,
-  just named and persisted instead of rebuilt from scratch each time.
+- **Default is itself an editable profile**, not a fixed constant — add/rename columns or write
+  instructions while Default is selected, same as for any named profile. It starts out as today's
+  built-in columns/instructions and only changes once you explicitly save over it (see below), so
+  existing behavior is unchanged until you opt in.
+- **Save as new format…** always creates a brand-new named profile from the active sheet's columns +
+  instructions (asset) or licence layout + instructions (licence) — the common path when customizing
+  a client's format starting from Default.
+- **Save changes to Default** (shown as **Update this format** when a named profile is selected)
+  overwrites whichever profile is currently selected in place — for Default, this updates the
+  baseline every new sheet starts from; for a named profile, it updates that profile itself.
+- The reset/delete button next to the picker resets Default back to its original factory
+  columns/instructions, or deletes the selected named profile.
 - **Storage: `localStorage` only** (`services/profileStore.ts`, key `invoiceintel.formatProfiles.v1`)
   — no server, no sync across browsers/devices/teammates. This is a deliberate v1 tradeoff to ship
   without new infrastructure while Supabase setup is deferred; move this to a shared store later if
