@@ -65,6 +65,7 @@ function systemPrompt(family: 'asset' | 'license', hasSeedDocument: boolean): st
 Guidelines:
 - Suggest fields based on the default list above as a starting point, but adapt freely — add fields the client mentions, drop ones that don't apply, rename to match their terminology.
 - When the client describes a field-specific handling rule (e.g. "ignore shipping rows", "dates are in DD/MM/YYYY", "treat renewals as new rows"), fold it into the instructions you'll eventually propose — don't just acknowledge it and forget it.
+- Every date field this format outputs must be MM/DD/YYYY, regardless of what format the source document prints dates in — state this explicitly in the instructions you write. If the client says their documents use a different date convention (day-first, spelled-out month names, etc.), include the specific conversion rule (which source format maps to which MM/DD/YYYY value) rather than leaving it implicit.
 - Write the final "instructions" field as directives to an extraction model (second person, imperative, specific), not as a recap of the conversation.
 - Ask only what you need to — usually one or two short questions are enough. Don't interrogate the client with a long questionnaire.
 - Only call propose_format once you're confident you have a workable format. Before that, just respond with plain text questions or suggestions.

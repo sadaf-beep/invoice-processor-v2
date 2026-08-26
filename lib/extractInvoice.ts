@@ -69,6 +69,58 @@ function coerceNumericColumns(items: InvoiceItem[], columns: ColumnConfig[]): In
   });
 }
 
+function pad2(n: string): string {
+  return n.length === 1 ? `0${n}` : n;
+}
+
+// Fixes what's unambiguous, leaves what's genuinely uncertain alone:
+// - Reorders an ISO YYYY-MM-DD date (its component order is fixed, no
+//   judgment needed) and zero-pads a month-first date Claude didn't pad
+//   ("5/9/2025" -> "05/09/2025").
+// - Swaps a day-first slip ONLY when it's structurally impossible to be
+//   month-first — first component > 12, second component <= 12 (e.g. a
+//   day-first "31/05/2025" that should've been converted to "05/31/2025"
+//   but wasn't). That's the one case a plain string transform can fix
+//   safely without reading the source document.
+// - Otherwise (both components <= 12) leaves it as-is — a code-level swap
+//   there would corrupt an already-correct date just as often as it'd fix
+//   a wrong one, since telling M/D from D/M apart requires the document,
+//   which is exactly what the extraction instructions are for.
+function normalizeToMonthFirst(value: string): string {
+  const iso = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return `${pad2(m)}/${pad2(d)}/${y}`;
+  }
+  const slashOrDash = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (slashOrDash) {
+    const [, a, b, y] = slashOrDash;
+    const first = Number(a);
+    const second = Number(b);
+    if (first > 12 && second <= 12) return `${pad2(b)}/${pad2(a)}/${y}`;
+    return `${pad2(a)}/${pad2(b)}/${y}`;
+  }
+  return value;
+}
+
+// A column typed 'date' must hold MM/DD/YYYY, no matter what the extraction
+// instructions asked for — same defense-in-depth as coerceNumericColumns.
+function coerceDateColumns(items: InvoiceItem[], columns: ColumnConfig[]): InvoiceItem[] {
+  const dateLabels = columns.filter((c) => c.type === 'date').map((c) => c.label);
+  if (dateLabels.length === 0) return items;
+
+  return items.map((item) => {
+    const coerced = { ...item };
+    for (const label of dateLabels) {
+      const value = coerced[label];
+      if (typeof value === 'string' && value.trim()) {
+        coerced[label] = normalizeToMonthFirst(value.trim());
+      }
+    }
+    return coerced;
+  });
+}
+
 export interface ExtractInvoiceInput {
   base64Data: string;
   mimeType: string;
@@ -206,7 +258,7 @@ export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoi
     }
   });
 
-  return coerceNumericColumns(expandedData, columns);
+  return coerceDateColumns(coerceNumericColumns(expandedData, columns), columns);
 }
 
 // --- Licence / support-agreement extraction -------------------------------
@@ -423,7 +475,10 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
         different from rule 3's caution against inferring dates — a category label is expected to be
         judgement-based when the source has no explicit section structure, not left empty.
     11. Leave "Purchase Date", "PO Number", and "Invoice Number" blank ("") unless the document clearly
-        states them — do not guess.
+        states them — do not guess. Every date this schema outputs — "Purchase Date" and every
+        "terms[].start"/"terms[].end" — MUST be formatted MM/DD/YYYY, matching the source document's
+        actual date regardless of what format it was printed in (e.g. a day-first "31/05/2025" source
+        date is 05/31/2025 here, not a straight reformat of the slashes).
     12. Ignore line items under a "Deleted", "Cancelled", or "Voided" section — only active line items.
 
     Every key must be present on every object — use an empty string ("") for missing text fields, 0
@@ -503,7 +558,8 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
         });
       });
     });
-    return { items: coerceNumericColumns(items, LICENSE_BASE_COLUMNS), columns: LICENSE_BASE_COLUMNS };
+    const cleaned = coerceDateColumns(coerceNumericColumns(items, LICENSE_BASE_COLUMNS), LICENSE_BASE_COLUMNS);
+    return { items: cleaned, columns: LICENSE_BASE_COLUMNS };
   }
 
   // Term-dated: one row per item, with a Term N group per year found —
@@ -522,5 +578,5 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
     return row;
   });
 
-  return { items: coerceNumericColumns(items, columns), columns };
+  return { items: coerceDateColumns(coerceNumericColumns(items, columns), columns), columns };
 }
