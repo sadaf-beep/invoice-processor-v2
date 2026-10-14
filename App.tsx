@@ -294,9 +294,9 @@ const App: React.FC = () => {
   };
 
   // Sheet name (and, since exports are named after the sheet, the exported
-  // CSV/Excel filename too) should match the source PDF's filename exactly —
+  // CSV/Excel filename too) should match the source file's name exactly —
   // no truncation, just the extension stripped since it isn't a file on disk.
-  const sheetNameFromFileName = (fileName: string): string => fileName.replace(/\.(pdf|jpe?g|png)$/i, '');
+  const sheetNameFromFileName = (fileName: string): string => fileName.replace(/\.(pdf|jpe?g|png|html?|csv|xlsx?)$/i, '');
 
   // PREPAID-classified rows get a highlight so they're visible in the sheet
   // at a glance — independent of whether they later also get processed into
@@ -347,9 +347,14 @@ const App: React.FC = () => {
   // columns, so appending to it doesn't make sense the way asset rows do.
   const handleLicenseDataReady = (items: InvoiceItem[], columns: ColumnConfig[], fileName: string) => {
     const newId = Date.now().toString();
+    // "Contract" on the end marks this sheet (and its exported file) as a
+    // licence/SLA sheet at a glance, same way the Scale icon does in the tab
+    // strip — reserve room for it within Excel/Sheets' 31-char tab limit.
+    const CONTRACT_SUFFIX = ' Contract';
+    const sheetName = `${sheetNameFromFileName(fileName).slice(0, 31 - CONTRACT_SUFFIX.length)}${CONTRACT_SUFFIX}`;
     const newSheet: Sheet = {
       id: newId,
-      name: sheetNameFromFileName(fileName).slice(0, 31), // Excel/Sheets tab name limit
+      name: sheetName,
       data: items,
       columns,
       customInstructions: '',

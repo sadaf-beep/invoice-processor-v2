@@ -80,7 +80,10 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
   const [dragOver, setDragOver] = useState(false);
 
   const [docFormat, setDocFormat] = useState<'asset' | 'license'>('asset');
-  const [licenseLayout, setLicenseLayout] = useState<LicenseLayout>('base');
+  // Licence imports always use the term-dated layout (one row per item, a
+  // Term N group of columns per coverage period found) — the base layout
+  // (one row per contract-year) is no longer offered.
+  const licenseLayout: LicenseLayout = 'term-dated';
 
   // Saved client-specific formats (localStorage) — Default (no id) is always
   // the pre-selected option and never touches saved data.
@@ -155,7 +158,6 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
     // Asset profiles can swap the whole column set; licence profiles keep
     // the standard columns and only vary instructions + layout.
     onConfigChange(profile.family === 'asset' && profile.columns ? profile.columns : activeSheet.columns, profile.instructions);
-    if (profile.family === 'license' && profile.licenseLayout) setLicenseLayout(profile.licenseLayout);
   };
 
   // Always creates a brand new named profile — this is the primary action,
@@ -226,7 +228,6 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
       if (resetProfile) {
         setSelectedProfileId(resetProfile.id);
         onConfigChange(resetProfile.family === 'asset' && resetProfile.columns ? resetProfile.columns : activeSheet.columns, resetProfile.instructions);
-        if (resetProfile.family === 'license' && resetProfile.licenseLayout) setLicenseLayout(resetProfile.licenseLayout);
       }
       return;
     }
@@ -261,13 +262,12 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
         ? proposal.columns.map((c) => ({ id: c.label, label: c.label, type: c.type, required: false }))
         : undefined,
       instructions: proposal.instructions,
-      licenseLayout: docFormat === 'license' ? (proposal.licenseLayout ?? licenseLayout) : undefined,
+      licenseLayout: docFormat === 'license' ? licenseLayout : undefined,
     };
     saveProfile(profile);
     setProfiles(listProfiles(docFormat));
     setSelectedProfileId(profile.id);
     onConfigChange(profile.family === 'asset' && profile.columns ? profile.columns : activeSheet.columns, profile.instructions);
-    if (profile.family === 'license' && profile.licenseLayout) setLicenseLayout(profile.licenseLayout);
     setAiChat(null);
   };
 
@@ -622,18 +622,12 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                   )}
 
                   {docFormat === 'license' && (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] text-[color:var(--color-ink-soft)] font-medium mr-1">Layout:</span>
-                        <button onClick={() => setLicenseLayout('base')} className={`filter-chip ${licenseLayout === 'base' ? 'on' : ''}`}>Base</button>
-                        <button onClick={() => setLicenseLayout('term-dated')} className={`filter-chip ${licenseLayout === 'term-dated' ? 'on' : ''}`}>Term-dated</button>
-                      </div>
-                      <p className="text-[11px] text-[color:var(--color-ink-muted)]">
-                        Produces a separate licence-format sheet (Contract Name, Term dates, Category, Review Notes,
-                        etc.) instead of the asset columns — use Term-dated for multi-year contracts. Accepts a
-                        PDF/image quote, or a CSV/Excel export if that's how the licence data arrives.
-                      </p>
-                    </>
+                    <p className="text-[11px] text-[color:var(--color-ink-muted)]">
+                      Produces a separate licence-format sheet (Contract Name, Term dates, Category, Review Notes,
+                      etc.) instead of the asset columns — always term-dated, one row per item with a Term N group
+                      of columns for every coverage period found. Accepts a PDF/image quote, or a CSV/Excel export
+                      if that's how the licence data arrives.
+                    </p>
                   )}
                 </section>
               )}
@@ -757,12 +751,6 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                               <span className="leading-snug">{describeItem(item)}</span>
                             </label>
                           ))}
-                        </div>
-
-                        <div className="flex items-center gap-1.5 pl-[23px]">
-                          <span className="text-[11px] text-[color:var(--color-ink-muted)] mr-1">Layout:</span>
-                          <button onClick={() => setLicenseLayout('base')} className={`filter-chip ${licenseLayout === 'base' ? 'on' : ''}`}>Base</button>
-                          <button onClick={() => setLicenseLayout('term-dated')} className={`filter-chip ${licenseLayout === 'term-dated' ? 'on' : ''}`}>Term-dated</button>
                         </div>
 
                         <div className="flex gap-2 pl-[23px]">

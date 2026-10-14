@@ -8,7 +8,7 @@ const DEFAULT_PROFILE_ID: Record<'asset' | 'license', string> = {
 function factoryDefault(family: 'asset' | 'license'): FormatProfile {
   return family === 'asset'
     ? { id: DEFAULT_PROFILE_ID.asset, name: 'Default', family: 'asset', columns: DEFAULT_COLUMNS, instructions: DEFAULT_INSTRUCTIONS }
-    : { id: DEFAULT_PROFILE_ID.license, name: 'Default', family: 'license', columns: LICENSE_BASE_COLUMNS, instructions: '', licenseLayout: 'base' };
+    : { id: DEFAULT_PROFILE_ID.license, name: 'Default', family: 'license', columns: LICENSE_BASE_COLUMNS, instructions: '', licenseLayout: 'term-dated' };
 }
 
 // Client formats that ship with the app itself (not something a user has to

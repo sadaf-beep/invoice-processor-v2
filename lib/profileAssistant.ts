@@ -37,9 +37,9 @@ const PROPOSE_FORMAT_TOOL: Anthropic.Tool = {
       },
       licenseLayout: {
         type: 'string',
-        enum: ['base', 'term-dated'],
+        enum: ['term-dated'],
         description:
-          'Licence/SLA profiles only: "base" for one row per line item, "term-dated" if coverage terms should each get their own Start/End/Amount columns.',
+          'Licence/SLA profiles only: always "term-dated" — one row per item, with each coverage term getting its own Start/End/Amount columns. The base layout (one row per contract-year) is no longer offered.',
       },
       summaryForUser: {
         type: 'string',
