@@ -8,12 +8,13 @@ export const processInvoiceWithClaude = async (
   mimeType: string,
   columns: ColumnConfig[],
   customInstructions: string,
-  pageRange: string
+  pageRange: string,
+  fileName?: string
 ): Promise<InvoiceItem[]> => {
   const response = await fetch("/api/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ base64Data, mimeType, columns, customInstructions, pageRange }),
+    body: JSON.stringify({ base64Data, mimeType, fileName, columns, customInstructions, pageRange }),
   });
 
   if (!response.ok) {

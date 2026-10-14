@@ -14,6 +14,7 @@ export const config = {
 interface ExtractRequestBody {
   base64Data: string;
   mimeType: string;
+  fileName?: string;
   columns: ColumnConfig[];
   customInstructions: string;
   pageRange: string;
@@ -34,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { base64Data, mimeType, columns, customInstructions, pageRange } = req.body as ExtractRequestBody;
+  const { base64Data, mimeType, fileName, columns, customInstructions, pageRange } = req.body as ExtractRequestBody;
 
   if (!base64Data || !mimeType || !Array.isArray(columns)) {
     res.status(400).json({ error: 'Missing required fields: base64Data, mimeType, columns.' });
@@ -44,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = new Anthropic({ apiKey });
 
   try {
-    const items = await extractInvoiceItems(client, { base64Data, mimeType, columns, customInstructions, pageRange });
+    const items = await extractInvoiceItems(client, { base64Data, mimeType, fileName, columns, customInstructions, pageRange });
     res.status(200).json({ items });
   } catch (error) {
     console.error('Claude API Error:', error);

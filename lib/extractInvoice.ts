@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
+import { convert as convertHtmlToText } from 'html-to-text';
 import { InvoiceItem, ColumnConfig, LICENSE_BASE_COLUMNS, buildTermDatedColumns } from '../types.js';
 
 // Internal interface that includes Quantity for processing logic
@@ -8,6 +9,28 @@ interface RawInvoiceItem extends InvoiceItem {
 }
 
 const MODEL = 'claude-opus-4-8';
+
+// Saved vendor emails (e.g. a Coupa/Amazon requisition-approval notice saved
+// as .html from Outlook) aren't a document/image type Claude's API can read
+// directly — same situation as a spreadsheet export. Browsers report
+// text/html fairly reliably, but the extension check covers a mislabeled or
+// blank MIME type the way SPREADSHEET_EXTENSION does for CSV.
+function isHtmlSource(mimeType: string, fileName?: string): boolean {
+  return mimeType === 'text/html' || (!!fileName && /\.html?$/i.test(fileName));
+}
+
+// Strips markup down to the readable text Claude needs (including table
+// cell content, since Coupa's approval emails bury PO fields in deeply
+// nested tables) and drops images/links that only add noise.
+function htmlToPromptText(buffer: Buffer): string {
+  return convertHtmlToText(buffer.toString('utf8'), {
+    wordwrap: false,
+    selectors: [
+      { selector: 'img', format: 'skip' },
+      { selector: 'a', options: { ignoreHref: true } },
+    ],
+  });
+}
 
 // Claude is told to return a raw JSON array, but with a large/complex
 // document or custom instructions it sometimes wraps the array in a code
@@ -124,6 +147,10 @@ function coerceDateColumns(items: InvoiceItem[], columns: ColumnConfig[]): Invoi
 export interface ExtractInvoiceInput {
   base64Data: string;
   mimeType: string;
+  // Original filename — used to detect an HTML source, since browsers can
+  // report an inconsistent or blank MIME type for a saved .html email the
+  // way they do for .csv (see isHtmlSource).
+  fileName?: string;
   columns: ColumnConfig[];
   customInstructions: string;
   pageRange: string;
@@ -133,8 +160,9 @@ export interface ExtractInvoiceInput {
 // attachment) — the Claude call, prompt, and response parsing are identical
 // regardless of where the document came from.
 export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoiceInput): Promise<InvoiceItem[]> {
-  const { base64Data, mimeType, columns, customInstructions, pageRange } = input;
+  const { base64Data, mimeType, fileName, columns, customInstructions, pageRange } = input;
   const cleanBase64 = base64Data.replace(/^data:.+;base64,/, '');
+  const isHtml = isHtmlSource(mimeType, fileName);
 
   const columnNames = columns.map((c) => `"${c.label}"`).join(', ');
 
@@ -204,28 +232,39 @@ export async function extractInvoiceItems(client: Anthropic, input: ExtractInvoi
     explanation — the response body must start with "[" and end with "]".
   `;
 
-  const isImage = mimeType.startsWith('image/');
-  const documentBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam = isImage
-    ? { type: 'image', source: { type: 'base64', media_type: mimeType as any, data: cleanBase64 } }
-    : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: cleanBase64 } };
+  let content: Anthropic.MessageParam['content'];
+  if (isHtml) {
+    // A saved email (e.g. a Coupa/Amazon requisition-approval notice) isn't
+    // a document/image type Claude's API can read directly — convert it to
+    // plain text server-side and hand that over instead, same approach as
+    // the spreadsheet path in extractLicenseItems below.
+    const emailText = htmlToPromptText(Buffer.from(cleanBase64, 'base64'));
+    content = [
+      {
+        type: 'text',
+        text: `SOURCE EMAIL (HTML export, converted to plain text below — this is a purchase order / requisition notification, not a PDF or image):\n\n${emailText}\n\nExtract every invoice line item. Follow USER OVERRIDES above all else.`,
+      },
+    ];
+  } else {
+    const isImage = mimeType.startsWith('image/');
+    const documentBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam = isImage
+      ? { type: 'image', source: { type: 'base64', media_type: mimeType as any, data: cleanBase64 } }
+      : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: cleanBase64 } };
+    content = [
+      documentBlock,
+      {
+        type: 'text',
+        text: `Extract every invoice line item. Focus strictly on page range: ${pageRange}. Follow USER OVERRIDES above all else.`,
+      },
+    ];
+  }
 
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 16000,
     thinking: { type: 'adaptive' },
     system: dynamicSystemInstruction,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          documentBlock,
-          {
-            type: 'text',
-            text: `Extract every invoice line item. Focus strictly on page range: ${pageRange}. Follow USER OVERRIDES above all else.`,
-          },
-        ],
-      },
-    ],
+    messages: [{ role: 'user', content }],
   });
 
   const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');

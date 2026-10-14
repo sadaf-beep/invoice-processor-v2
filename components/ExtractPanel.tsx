@@ -41,6 +41,12 @@ const ASSET_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 // extension check below is the more reliable signal for that one.
 const SPREADSHEET_TYPES = ['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
 const SPREADSHEET_EXTENSION = /\.(csv|xlsx|xls)$/i;
+// Some vendors (e.g. Amazon's Coupa approval notices) now arrive as a saved
+// email rather than a PDF — allowed in both formats since either could get
+// one. Browsers report .html/.htm reliably as text/html, but the extension
+// check covers a mislabeled file the same way SPREADSHEET_EXTENSION does.
+const HTML_TYPES = ['text/html'];
+const HTML_EXTENSION = /\.html?$/i;
 
 const cleanErr = (e: unknown): string => {
   let s = e instanceof Error ? e.message : String(e);
@@ -294,6 +300,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
 
   const isAcceptedFile = (f: File) => {
     if (ASSET_TYPES.includes(f.type)) return true;
+    if (HTML_TYPES.includes(f.type) || HTML_EXTENSION.test(f.name)) return true;
     if (docFormat !== 'license') return false;
     return SPREADSHEET_TYPES.includes(f.type) || SPREADSHEET_EXTENSION.test(f.name);
   };
@@ -402,7 +409,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                 const { items, columns } = await processLicenseWithClaude(base64, file.type, file.name, licenseLayout, activeSheet.customInstructions);
                 onLicenseDataReady(items, columns, file.name);
               } else {
-                const result = await processInvoiceWithClaude(base64, file.type, activeSheet.columns, activeSheet.customInstructions, pageRange);
+                const result = await processInvoiceWithClaude(base64, file.type, activeSheet.columns, activeSheet.customInstructions, pageRange, file.name);
                 // Every row stays in the asset sheet regardless — this is
                 // still a POC and PREPAID rows need human eyes on them here
                 // too, not just in a separate licence sheet.
@@ -673,7 +680,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                         ref={fileInputRef}
                         type="file"
                         multiple
-                        accept={docFormat === 'license' ? '.pdf,.jpg,.jpeg,.png,.csv,.xlsx,.xls' : '.pdf,.jpg,.jpeg,.png'}
+                        accept={docFormat === 'license' ? '.pdf,.jpg,.jpeg,.png,.csv,.xlsx,.xls,.html,.htm' : '.pdf,.jpg,.jpeg,.png,.html,.htm'}
                         className="hidden"
                         onChange={handleFileChange}
                       />
@@ -682,7 +689,7 @@ export const ExtractPanel: React.FC<ExtractPanelProps> = ({ isOpen, onClose, onD
                       </div>
                       <p className="text-[13px] font-semibold text-[color:var(--color-ink)]">Click to upload or drag & drop</p>
                       <p className="text-[11px] text-[color:var(--color-ink-muted)] mt-0.5">
-                        {docFormat === 'license' ? 'PDF, JPG, PNG, CSV or Excel · up to 100 files' : 'PDF, JPG or PNG · up to 100 files'}
+                        {docFormat === 'license' ? 'PDF, JPG, PNG, CSV, Excel or HTML · up to 100 files' : 'PDF, JPG, PNG or HTML · up to 100 files'}
                       </p>
                     </div>
 
