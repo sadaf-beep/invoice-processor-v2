@@ -388,6 +388,7 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
   const { base64Data, mimeType, fileName, format, customInstructions, focusItems } = input;
   const cleanBase64 = base64Data.replace(/^data:.+;base64,/, '');
   const isSpreadsheet = isSpreadsheetSource(mimeType, fileName);
+  const isHtml = isHtmlSource(mimeType, fileName);
 
   const systemPrompt = `
     You are an expert at parsing vendor licence and support-agreement documents (e.g. Ross Video,
@@ -537,6 +538,20 @@ export async function extractLicenseItems(client: Anthropic, input: ExtractLicen
       {
         type: 'text',
         text: `SOURCE SPREADSHEET DATA (raw rows below — map into the target fields per the rules above):\n\n${sheetText}`,
+      },
+    ];
+  } else if (isHtml) {
+    // Same reasoning as extractInvoiceItems above — a saved email isn't a
+    // document/image type Claude's API can read directly. This matters here
+    // too: an HTML PO that contains a PREPAID line gets re-sent through this
+    // same function for the licence sub-extraction (see ExtractPanel's
+    // askAboutLicenseItems flow), so this path needs the same handling the
+    // initial asset extraction already has.
+    const emailText = htmlToPromptText(Buffer.from(cleanBase64, 'base64'));
+    content = [
+      {
+        type: 'text',
+        text: `SOURCE EMAIL (HTML export, converted to plain text below — this is not a PDF or image):\n\n${emailText}\n\nExtract every licence/contract line item per the rules above.`,
       },
     ];
   } else {
